@@ -1,8 +1,13 @@
 package main
 
 import (
+	"embed"
+
 	"github.com/nbrglm/nexeres/cmd"
 )
+
+//go:embed sqlc
+var migrationsFS embed.FS
 
 // @title NBRGLM Nexeres API Spec
 // @version 0.0.1
@@ -39,5 +44,5 @@ import (
 // @externalDocs.url https://nbrglm.com/nexeres/docs
 func main() {
 	// Execute the root command.
-	cmd.Exec()
+	cmd.Exec(migrationsFS)
 }

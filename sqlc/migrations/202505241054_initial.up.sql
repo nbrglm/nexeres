@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS orgs (
   description TEXT,
   avatar_url TEXT,
   settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+  domain_verification_secret VARCHAR(256) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMPTZ DEFAULT NULL
@@ -19,14 +20,15 @@ CREATE TABLE IF NOT EXISTS orgs (
 -- It is used for auto-joining users to the org based on their email address.
 -- The domain must be a valid email domain.
 CREATE TABLE IF NOT EXISTS org_domains (
-  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
   -- The domain name, used to identify the org in Nexeres.
-  domain VARCHAR(512) NOT NULL UNIQUE,
+  domain VARCHAR(512) PRIMARY KEY,
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
   verified BOOLEAN NOT NULL DEFAULT FALSE,
-  auto_join_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  verification_token_hash VARCHAR(512) NOT NULL,
+  verified_at TIMESTAMPTZ,
+  auto_join BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (org_id, domain)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Insert the default org, which is used when no org is specified.
@@ -45,12 +47,14 @@ CREATE TABLE IF NOT EXISTS users (
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
   -- NULLABLE only if the user is connected via OAuth or SSO.
   password_hash VARCHAR(512),
+  -- Whether the user has enabled multi-factor authentication (MFA) for their account.
+  mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   -- MFA backup codes for the user, used for multi-factor authentication.
   -- Each code is a unique, randomly generated string that can be used to authenticate the user.
   -- The codes are encrypted in the database.
   -- The user can generate new codes at any time, which will invalidate the old codes.
   -- Only NON-NULL if the user has enabled multi-factor authentication (MFA).
-  backup_codes TEXT [],
+  backup_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
   first_name VARCHAR(512),
   last_name VARCHAR(512),
   avatar_url TEXT,
@@ -66,16 +70,18 @@ CREATE TABLE IF NOT EXISTS user_orgs (
   -- The role of the user in the org, one of 'owner', 'admin', 'member'.
   -- 'owner' has full control over the org, 'admin' can manage users and settings, 'member' has limited access.
   -- The default role is 'member'.
-  role VARCHAR(16) NOT NULL DEFAULT 'member',
-  -- The date and time when the user joined the org.
-  joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  -- The date and time when the user was last active in the org.
-  last_active_at TIMESTAMPTZ DEFAULT NULL,
-  -- Status of the user in the org, one of 'active', 'banned'.
-  -- 'active' means the user is currently active in the org,
-  -- 'banned' means the user is banned from the org.
-  STATUS VARCHAR(16) NOT NULL DEFAULT 'active',
-  PRIMARY KEY (user_id, org_id)
+  nexeres_role VARCHAR(16) NOT NULL DEFAULT 'member' CHECK (
+    nexeres_role IN ('owner', 'admin', 'member')
+  ),
+  -- The role_id references the roles table, which defines custom roles and their permissions.
+  -- This allows for more granular control over user permissions in the org.
+  role_id UUID REFERENCES roles(id) ON DELETE
+  SET NULL,
+    -- The date and time when the user joined the org.
+    joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- 'banned' means the user is banned from the org, no sessions can be created for the user in the org.
+    is_banned BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (user_id, org_id)
 );
 
 -- OAuth providers configuration table, per-org.

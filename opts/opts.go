@@ -8,7 +8,7 @@ var Debug bool
 // Default org data
 const DefaultOrgSlug = "default"
 const DefaultOrgName = "Default Organization"
-const DefaultOrgId = "019735ab-f216-717f-9d12-e3915453c8d0"
+const DefaultOrgId = "00000000-0000-7000-0000-000000000001"
 
 // S3 Store Bucket Names
 const S3StoreBucketName string = "nexeres"

@@ -150,6 +150,7 @@ func (h *LoginHandler) handleSingleTenantLogin(c *gin.Context) {
 		Email:         user.Email,
 		EmailVerified: user.EmailVerified,
 		UserFname:     *user.FirstName,
+		UserMname:     user.MiddleName,
 		UserLname:     *user.LastName,
 		UserAvatarURL: avatarUrl,
 		UserOrgRole:   "member",

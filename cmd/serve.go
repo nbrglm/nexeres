@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"embed"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -30,13 +32,13 @@ import (
 	"go.uber.org/zap"
 )
 
-func initServeCommand() {
+func initServeCommand(migrationsFS embed.FS) {
 	var serveCommand = &cobra.Command{
 		Use:   "serve",
 		Short: "Start the server and listen for incoming requests",
 		Run: func(cmd *cobra.Command, args []string) {
 			// Start the server
-			runServer(cmd)
+			runServer(cmd, migrationsFS)
 		},
 	}
 
@@ -46,7 +48,7 @@ func initServeCommand() {
 	rootCmd.AddCommand(serveCommand)
 }
 
-func runServer(cmd *cobra.Command) {
+func runServer(cmd *cobra.Command, migrationsFS embed.FS) {
 	osSignals := make(chan os.Signal, 1)
 	signal.Notify(osSignals, syscall.SIGINT, syscall.SIGTERM)
 
@@ -58,13 +60,41 @@ func runServer(cmd *cobra.Command) {
 
 	// Load the configuration file
 	if err := config.LoadConfigOptions(*opts.ConfigPath); err != nil {
-		cmd.PrintErrf("Error loading config file: %v\n", err)
-		os.Exit(1)
-		return
+		fatal(cmd, "Error loading config file: %v\n", err)
 	}
 
 	// Initialize the logger
 	logging.InitLogger()
+
+	// Before doing ANYTHING else, we migrate the DB to the latest version.
+	// This ensures that the DB is always in the latest state, and we don't run into issues
+	// due to missing tables, columns, etc.
+	m, err := getMigrations(migrationsFS)
+	if err != nil {
+		// We don't wrap the error here, since getMigrations already wraps it.
+		fatalLogger("Error initializing migrations: %v\n", zap.Error(err))
+	}
+	if opts.Debug {
+		cmd.Println("Running database migrations...")
+		err = runMigrations(true, false, cmd, m)
+		if err != nil {
+			fatalLogger("Error running migrations: %v\n", zap.Error(err))
+		}
+		cmd.Println("Database migrations completed.")
+	} else {
+		pending, err := hasPendingMigrations(m, migrationsFS)
+		if err != nil {
+			fatalLogger("Error checking for pending migrations: %v\n", zap.Error(err))
+		}
+		if pending {
+			fatalLogger("Database is not up-to-date, please run the following command to migrate the database.", zap.String("command", fmt.Sprintf("%s migrate --up --config %s", opts.Name, *opts.ConfigPath)))
+		}
+	}
+
+	// Close the migration instance, as we don't need it anymore.
+	if err := errors.Join(m.Close()); err != nil {
+		fatalLogger("Error closing migration instance", zap.Error(err))
+	}
 
 	engine := gin.Default()
 	if opts.Debug {
@@ -104,9 +134,7 @@ func runServer(cmd *cobra.Command) {
 
 	// Initialize the rate limiter, before adding the handler routes.
 	if err := middlewares.InitRateLimitStore(); err != nil {
-		logging.Logger.Error("Failed to initialize rate limit store", zap.Error(err))
-		logging.ShutdownLogger(context.Background())
-		os.Exit(1)
+		fatalLogger("Failed to initialize rate limit store", zap.Error(err))
 	}
 
 	// Add the rate limit middleware AFTER the API Key middleware,
@@ -137,26 +165,20 @@ func runServer(cmd *cobra.Command) {
 	metrics.AddMetricsRoute(engine)
 
 	// Initialize the OpenTelemetry Tracer
-	err := tracing.InitTracer(context.Background())
+	err = tracing.InitTracer(context.Background())
 	if err != nil {
 		// If OTEL tracer provider initialization fails, log the error and exit
-		logging.Logger.Error("Failed to initialize OTEL tracer provider", zap.Error(err))
-		logging.ShutdownLogger(context.Background())
-		os.Exit(1)
+		fatalLogger("Failed to initialize OTEL tracer provider", zap.Error(err))
 	}
 
 	tracing.AddTracingMiddleware(engine)
 
 	// Parse the notification templates
 	if err := templates.ParseEmailTemplates(); err != nil {
-		logging.Logger.Error("Failed to parse email templates", zap.Error(err))
-		logging.ShutdownLogger(context.Background())
-		os.Exit(1)
+		fatalLogger("Failed to parse email templates", zap.Error(err))
 	}
 	if err := templates.ParseMessageTemplates(); err != nil {
-		logging.Logger.Error("Failed to parse message templates", zap.Error(err))
-		logging.ShutdownLogger(context.Background())
-		os.Exit(1)
+		fatalLogger("Failed to parse message templates", zap.Error(err))
 	}
 
 	// Setup Notifications senders
@@ -165,30 +187,22 @@ func runServer(cmd *cobra.Command) {
 
 	// Initialize the cache
 	if err := cache.InitCache(); err != nil {
-		logging.Logger.Error("Failed to initialize cache", zap.Error(err))
-		logging.ShutdownLogger(context.Background())
-		os.Exit(1)
+		fatalLogger("Failed to initialize cache", zap.Error(err))
 	}
 
 	// Initialize the token generation and keys
 	if err := tokens.InitTokens(); err != nil {
-		logging.Logger.Error("Failed to initialize tokens", zap.Error(err))
-		logging.ShutdownLogger(context.Background())
-		os.Exit(1)
+		fatalLogger("Failed to initialize tokens", zap.Error(err))
 	}
 
 	// Connect with the database
 	if err := store.InitDB(context.Background()); err != nil {
-		logging.Logger.Error("Failed to initialize database connection pool", zap.Error(err))
-		logging.ShutdownLogger(context.Background())
-		os.Exit(1)
+		fatalLogger("Failed to initialize database connection pool", zap.Error(err))
 	}
 
 	// Initialize the s3 store
 	if err := store.InitS3Store(context.Background()); err != nil {
-		logging.Logger.Error("Failed to initialize S3 store", zap.Error(err))
-		logging.ShutdownLogger(context.Background())
-		os.Exit(1)
+		fatalLogger("Failed to initialize S3 store", zap.Error(err))
 	}
 
 	// Start the server
@@ -201,9 +215,7 @@ func runServer(cmd *cobra.Command) {
 	logging.Logger.Info("Starting server", zap.String("address", serverAddress))
 	fmt.Printf("Starting server at %v", serverAddress)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		logging.Logger.Error("Failed to start server", zap.Error(err))
-		logging.ShutdownLogger(context.Background())
-		os.Exit(1)
+		fatalLogger("Failed to start server", zap.Error(err))
 	}
 
 	fmt.Printf("Started server at %v", serverAddress)
@@ -241,5 +253,5 @@ func runServer(cmd *cobra.Command) {
 		fmt.Printf("Failed to shutdown logger, %v", err)
 	}
 
-	// No logging.* calls after this point, as the logger is shutting down.
+	// No logging.* calls after this point, as the logger is shut down.
 }

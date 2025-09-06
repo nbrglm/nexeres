@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"context"
+	"embed"
 	"fmt"
 	"os"
 
+	"github.com/nbrglm/nexeres/internal/logging"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 )
 
 var rootCmd = &cobra.Command{
@@ -22,9 +26,10 @@ var rootCmd = &cobra.Command{
 // This is the entry point for the command line application.
 // It is responsible for setting up the command line interface and executing the commands.
 // Only supposed to be called once, when the application is started, by the main function.
-func Exec() {
-	initServeCommand()
+func Exec(migrationsFS embed.FS) {
+	initServeCommand(migrationsFS)
 	initKeygenCommand()
+	initMigrationCommand(migrationsFS)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -32,4 +37,15 @@ func Exec() {
 		// This is important for CI/CD pipelines and other automated systems.
 		os.Exit(1)
 	}
+}
+
+func fatal(cmd *cobra.Command, format string, args ...any) {
+	cmd.PrintErrf(format, args...)
+	os.Exit(1)
+}
+
+func fatalLogger(msg string, fields ...zap.Field) {
+	logging.Logger.Error(msg, fields...)
+	logging.ShutdownLogger(context.Background())
+	os.Exit(1)
 }
