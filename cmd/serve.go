@@ -72,14 +72,15 @@ func runServer(cmd *cobra.Command, migrationsFS embed.FS) {
 	m, err := getMigrations(migrationsFS)
 	if err != nil {
 		// We don't wrap the error here, since getMigrations already wraps it.
-		fatalLogger("Error initializing migrations: %v\n", zap.Error(err))
+		fatalLogger("Error initializing migrations: ", zap.Error(err))
 	}
 	if opts.Debug {
 		cmd.Println("Running database migrations...")
 		err = runMigrations(true, false, cmd, m)
 		if err != nil {
-			fatalLogger("Error running migrations: %v\n", zap.Error(err))
+			fatalLogger("Error running migrations: ", zap.Error(err))
 		}
+		// the migration db and source are closed by runMigrations
 		cmd.Println("Database migrations completed.")
 	} else {
 		pending, err := hasPendingMigrations(m, migrationsFS)
@@ -89,17 +90,16 @@ func runServer(cmd *cobra.Command, migrationsFS embed.FS) {
 		if pending {
 			fatalLogger("Database is not up-to-date, please run the following command to migrate the database.", zap.String("command", fmt.Sprintf("%s migrate --up --config %s", opts.Name, *opts.ConfigPath)))
 		}
-	}
-
-	// Close the migration instance, as we don't need it anymore.
-	if err := errors.Join(m.Close()); err != nil {
-		fatalLogger("Error closing migration instance", zap.Error(err))
+		// Close the migration instance, as we don't need it anymore.
+		if err := errors.Join(m.Close()); err != nil {
+			fatalLogger("Error closing migration instance", zap.Error(err))
+		}
 	}
 
 	engine := gin.Default()
 	if opts.Debug {
 		gin.SetMode(gin.DebugMode)
-		logging.Logger.Warn("Debug mode is enabled! This is not recommended for production environments. Use with caution. The following behaviour is used.", zap.String("Debug Mode", "Enabled"), zap.String("API Docs", fmt.Sprintf("%s/docs", config.Public.GetBaseURL())), zap.String("CSRF Protection", "Disabled"))
+		logging.Logger.Warn("Debug mode is enabled! This is not recommended for production environments. Use with caution. The following behaviour is used.", zap.String("Debug Mode", "Enabled"), zap.String("API Docs", fmt.Sprintf("%s/docs", config.C.Public.GetBaseURL())), zap.String("CSRF Protection", "Disabled"))
 		// Setup docs
 		engine.GET("/docs", func(ctx *gin.Context) {
 			ctx.Header("Content-Type", "text/html")
@@ -128,9 +128,11 @@ func runServer(cmd *cobra.Command, migrationsFS embed.FS) {
 	// Add CORS middleware
 	middlewares.InitCORS(engine)
 
-	// Add the API Key middleware, before rate limiting middlewares,
-	// since those need access to keys for rate limiting
-	engine.Use(middlewares.APIKeyMiddleware())
+	// Populate the auth context for all routes
+	engine.Use(middlewares.PopulateAuthContext())
+
+	// Require org scope for all routes
+	engine.Use(middlewares.RequireOrgScope())
 
 	// Initialize the rate limiter, before adding the handler routes.
 	if err := middlewares.InitRateLimitStore(); err != nil {
@@ -206,7 +208,7 @@ func runServer(cmd *cobra.Command, migrationsFS embed.FS) {
 	}
 
 	// Start the server
-	serverAddress := fmt.Sprintf("%s:%s", config.Server.Host, config.Server.Port)
+	serverAddress := fmt.Sprintf("%s:%s", config.C.Server.Host, config.C.Server.Port)
 	srv := &http.Server{
 		Addr:    serverAddress,
 		Handler: engine.Handler(),

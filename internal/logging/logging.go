@@ -45,8 +45,8 @@ var Provider *log.LoggerProvider
 // NOTE: This will return nil logger provider if the protocol is "stdout", as it uses the debug logger instead.
 // If the protocol is not recognized, it returns an error.
 func InitLogger() (err error) {
-	// If stdout is the protocol, then use debug logger.
-	if config.Observability.OtelExporterProtocol == "stdout" || config.Observability.OtelExporterEndpoint == "" {
+	// If stdout is the protocol or logs export is disabled, then use debug logger.
+	if config.C.Observability.Logs.Protocol == "stdout" || config.C.Observability.Logs.Endpoint == "" {
 		ReplaceWithDebugLogger()
 		return nil
 	}
@@ -54,25 +54,34 @@ func InitLogger() (err error) {
 	// The exporter is the component that will send log records to the configured endpoint.
 	// It can be either gRPC or HTTP, depending on the configuration.
 	var exporter log.Exporter
-	switch config.Observability.OtelExporterProtocol {
+	switch config.C.Observability.Logs.Protocol {
 	case "grpc":
 		options := []otlploggrpc.Option{
-			otlploggrpc.WithEndpoint(config.Observability.OtelExporterEndpoint),
+			otlploggrpc.WithEndpoint(config.C.Observability.Logs.Endpoint),
 		}
-		if opts.Debug {
+		if config.C.Observability.Logs.WithInsecure {
 			options = append(options, otlploggrpc.WithInsecure()) // Use insecure connection in debug mode.
+		}
+		if len(config.C.Observability.Logs.Headers) > 0 {
+			options = append(options, otlploggrpc.WithHeaders(config.C.Observability.Logs.Headers))
 		}
 		exporter, err = otlploggrpc.New(context.Background(), options...)
 	case "http/protobuf":
 		options := []otlploghttp.Option{
-			otlploghttp.WithEndpoint(config.Observability.OtelExporterEndpoint),
+			otlploghttp.WithEndpoint(config.C.Observability.Logs.Endpoint),
 		}
-		if opts.Debug {
+		if config.C.Observability.Logs.WithInsecure {
 			options = append(options, otlploghttp.WithInsecure()) // Use insecure connection in debug mode.
+		}
+		if config.C.Observability.Logs.EndpointPath != "" {
+			options = append(options, otlploghttp.WithURLPath(config.C.Observability.Logs.EndpointPath))
+		}
+		if len(config.C.Observability.Logs.Headers) > 0 {
+			options = append(options, otlploghttp.WithHeaders(config.C.Observability.Logs.Headers))
 		}
 		exporter, err = otlploghttp.New(context.Background(), options...)
 	default:
-		return fmt.Errorf("unknown otel log protocol: %s", config.Observability.OtelExporterProtocol)
+		return fmt.Errorf("unknown otel log protocol: %s", config.C.Observability.Logs.Protocol)
 	}
 
 	if err != nil {
@@ -90,7 +99,7 @@ func InitLogger() (err error) {
 		semconv.SchemaURL,
 		semconv.ServiceName(opts.Name),
 		semconv.ServiceVersion(opts.Version),
-		semconv.ServiceInstanceID(config.Server.InstanceID),
+		semconv.ServiceInstanceID(config.C.Server.InstanceID),
 		semconv.DeploymentEnvironment(config.Environment()),
 		semconv.HostName(hostname),
 	)
@@ -103,7 +112,7 @@ func InitLogger() (err error) {
 
 	zapConfig := zap.NewProductionConfig()
 
-	level, err := zapcore.ParseLevel(config.Observability.LogLevel)
+	level, err := zapcore.ParseLevel(config.C.Observability.Logs.Level)
 	if err != nil {
 		return err
 	}

@@ -3,15 +3,16 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"net/netip"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/nbrglm/nexeres/db"
-	"github.com/nbrglm/nexeres/internal"
 	"github.com/nbrglm/nexeres/internal/metrics"
 	"github.com/nbrglm/nexeres/internal/middlewares"
-	"github.com/nbrglm/nexeres/internal/models"
+	"github.com/nbrglm/nexeres/internal/obs"
+	"github.com/nbrglm/nexeres/internal/reserr"
+	"github.com/nbrglm/nexeres/internal/resp"
 	"github.com/nbrglm/nexeres/internal/store"
 	"github.com/nbrglm/nexeres/internal/tokens"
 	"github.com/nbrglm/nexeres/utils"
@@ -29,70 +30,81 @@ func NewRefreshTokenHandler() *RefreshTokenHandler {
 			prometheus.CounterOpts{
 				Namespace: "nexeres",
 				Subsystem: "auth",
-				Name:      "user_refresh_token_requests",
-				Help:      "Total number of user refresh token requests",
-			},
-			[]string{"status"},
+				Name:      "refresh_token",
+				Help:      "Total number of RefreshToken requests",
+			}, []string{"status"},
 		),
 	}
 }
 
-func (h *RefreshTokenHandler) Register(engine *gin.Engine) {
-	metrics.Collectors = append(metrics.Collectors, h.RefreshTokenCounter)
-	engine.POST("/api/auth/refresh", middlewares.RequireAuth(middlewares.AuthModeRefresh), h.HandleRefreshToken)
+func (h *RefreshTokenHandler) Register(router *gin.Engine) {
+	metrics.RegisterCollector(h.RefreshTokenCounter)
+	router.POST("/api/auth/refresh", h.Handle)
 }
 
-type RefreshTokenResult struct {
+type RefreshTokenRequest struct {
+	UserIP    string `json:"userIp" binding:"required,ip"`
+	UserAgent string `json:"userAgent"`
+}
+
+type RefreshTokenResponse struct {
+	resp.BaseResponse
 	Tokens *tokens.Tokens `json:"tokens"`
 }
 
-// HandleRefreshToken godoc
-// @Summary Refresh Token
-// @Description Handles token refresh requests.
-// @Tags Auth
+// @Summary RefreshToken Endpoint
+// @Description Handles RefreshToken requests
+// @Tags auth
 // @Accept json
 // @Produce json
+// @Param request body RefreshTokenRequest true "Request body"
 // @Param X-NEXERES-Refresh-Token header string true "Refresh token"
-// @Success 200 {object} RefreshTokenResult "New tokens"
-// @Failure 400 {object} models.ErrorResponse "Bad Request - Invalid or missing tokens"
-// @Failure 401 {object} models.ErrorResponse "Unauthorized - Invalid or expired tokens - Proceed to Login"
-// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Success 200 {object} RefreshTokenResponse
+// @Failure 400 {object} reserr.ErrorResponse
+// @Failure 401 {object} reserr.ErrorResponse
+// @Failure 500 {object} reserr.ErrorResponse
 // @Router /api/auth/refresh [post]
-func (h *RefreshTokenHandler) HandleRefreshToken(c *gin.Context) {
-	h.RefreshTokenCounter.WithLabelValues("received").Inc()
+func (h *RefreshTokenHandler) Handle(c *gin.Context) {
+	h.RefreshTokenCounter.WithLabelValues("total").Inc()
 
-	ctx, log, span := internal.WithContext(c.Request.Context(), "refresh_token_api")
-	defer span.End() // Ensure the span is ended to avoid memory leaks
+	ctx, log, span := obs.WithContext(c.Request.Context(), "RefreshTokenHandler.Handle")
+	defer span.End() // Ensure the span is ended when the function returns to prevent memory leaks
 
-	refreshToken := c.GetString(middlewares.CtxRefreshToken)
-	// we don't check if refreshToken is empty because the RequireAuth middleware ensures it's present
+	var req RefreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		reserr.ProcessError(c, reserr.BadRequest(), span, log, h.RefreshTokenCounter, "RefreshTokenHandler.Handle")
+		return
+	}
 
-	tx, err := store.PgPool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := store.PgPool.Begin(ctx)
 	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to begin transaction", http.StatusInternalServerError, err), span, log, h.RefreshTokenCounter, "refresh_token")
+		reserr.ProcessError(c, reserr.InternalServerError(err, "Failed to begin transaction"), span, log, h.RefreshTokenCounter, "RefreshTokenHandler.Handle")
 		return
 	}
 	defer tx.Rollback(ctx)
-
 	q := store.Querier.WithTx(tx)
-	log.Debug("Transaction begun successfully")
+
+	ipAddress := netip.MustParseAddr(req.UserIP)
+	userAgent := req.UserAgent
+	// we don't check if refreshToken is empty because the RequireAuth middleware ensures it's present
+	refreshToken := c.GetString(middlewares.CtxRefreshToken)
 
 	_, refreshTokenHash := tokens.HashTokens(&tokens.Tokens{
 		RefreshToken: refreshToken,
 	})
-	log.Debug("Refresh token hashed")
 
-	session, err := q.GetSessionByRefreshToken(ctx, refreshTokenHash)
+	session, err := q.GetSession(ctx, db.GetSessionParams{
+		RefreshTokenHash: &refreshTokenHash,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			utils.ProcessError(c, models.NewErrorResponse("Invalid refresh token! Please login again.", "No session found for refresh token", http.StatusUnauthorized, nil), span, log, h.RefreshTokenCounter, "refresh_token")
+			utils.ProcessError(c, reserr.Unauthorized("Invalid refresh token! Please login again.", "No session found for refresh token"), span, log, h.RefreshTokenCounter, "RefreshTokenHandler.Handle")
 			return
 		}
 
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Unable to retrieve session", http.StatusInternalServerError, err), span, log, h.RefreshTokenCounter, "refresh_token")
+		utils.ProcessError(c, reserr.InternalServerError(err, "Unable to retrieve session"), span, log, h.RefreshTokenCounter, "RefreshTokenHandler.Handle")
 		return
 	}
-	log.Debug("Session retrieved successfully", zap.String("sessionID", session.ID.String()))
 
 	// We DO NOT CHECK if the token has been revoked here as:
 	// The revocation is done by deleting the session from the database.
@@ -105,68 +117,62 @@ func (h *RefreshTokenHandler) HandleRefreshToken(c *gin.Context) {
 		UserID: session.UserID,
 		OrgID:  session.OrgID,
 	})
-
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			log.Debug("No user or organization found for session", zap.String("sessionID", session.ID.String()))
-			utils.ProcessError(c, models.NewErrorResponse("User or organization not found! Please login again.", "No user or organization found for session", http.StatusUnauthorized, nil), span, log, h.RefreshTokenCounter, "refresh_token")
+			utils.ProcessError(c, reserr.Unauthorized("User or organization not found! Please login again.", "No user or organization found for session"), span, log, h.RefreshTokenCounter, "RefreshTokenHandler.Handle")
 			return
 		}
 
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Unable to retrieve user or organization info", http.StatusInternalServerError, err), span, log, h.RefreshTokenCounter, "refresh_token")
+		utils.ProcessError(c, reserr.InternalServerError(err, "Unable to retrieve user or organization info"), span, log, h.RefreshTokenCounter, "RefreshTokenHandler.Handle")
 		return
 	}
-	log.Debug("User and organization info retrieved successfully", zap.String("userID", session.UserID.String()), zap.String("orgSlug", newTokenInfo.OrgSlug))
-
-	avatarUrl := ""
-	if newTokenInfo.UserAvatarUrl != nil {
-		avatarUrl = *newTokenInfo.UserAvatarUrl
-	}
-
-	log.Debug("Generating new tokens for user", zap.String("orgSlug", newTokenInfo.OrgSlug))
 
 	newTokenPair, err := tokens.RefreshSessionTokens(session, tokens.NexeresClaims{
-		OrgSlug: newTokenInfo.OrgSlug,
-		OrgName: newTokenInfo.OrgName,
-		OrgId:   session.OrgID.String(),
+		OrgSlug:      newTokenInfo.OrgSlug,
+		OrgName:      newTokenInfo.OrgName,
+		OrgAvatarURL: newTokenInfo.OrgAvatarUrl,
+		OrgId:        session.OrgID,
 
 		Email:         newTokenInfo.UserEmail,
 		EmailVerified: newTokenInfo.UserEmailVerified,
-		UserFname:     *newTokenInfo.UserFname,
-		UserLname:     *newTokenInfo.UserLname,
-		UserAvatarURL: avatarUrl,
+		MFAEnabled:    newTokenInfo.UserMfaEnabled,
+		OrgAdmin:      newTokenInfo.UserIsOrgAdmin,
+		UserName:      newTokenInfo.UserName,
+		UserAvatarURL: newTokenInfo.UserAvatarUrl,
 		UserOrgRole:   newTokenInfo.UserOrgRole,
+		UserOrgRoleId: newTokenInfo.UserOrgRoleID,
 	})
 	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Unable to generate new tokens", http.StatusInternalServerError, err), span, log, h.RefreshTokenCounter, "refresh_token")
+		utils.ProcessError(c, reserr.InternalServerError(err, "Unable to generate new tokens"), span, log, h.RefreshTokenCounter, "RefreshTokenHandler.Handle")
 		return
 	}
-	log.Debug("New token pair generated successfully")
 
 	newSessionTokenHash, newRefreshTokenHash := tokens.HashTokens(newTokenPair)
-
-	_, err = q.RefreshSession(ctx, db.RefreshSessionParams{
-		ID:               session.ID,
-		RefreshTokenHash: &newRefreshTokenHash,
-		TokenHash:        &newSessionTokenHash,
-		ExpiresAt: pgtype.Timestamptz{
-			Time:  newTokenPair.RefreshTokenExpiry,
-			Valid: true,
-		},
+	err = q.RefreshSession(ctx, db.RefreshSessionParams{
+		ID:               &session.ID,
+		RefreshTokenHash: newRefreshTokenHash,
+		SessionTokenHash: newSessionTokenHash,
+		ExpiresAt:        newTokenPair.RefreshTokenExpiry,
+		IpAddress:        &ipAddress,
+		UserAgent:        &userAgent,
 	})
-
 	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Unable to refresh session", http.StatusInternalServerError, err), span, log, h.RefreshTokenCounter, "refresh_token")
+		utils.ProcessError(c, reserr.InternalServerError(err, "Unable to refresh session"), span, log, h.RefreshTokenCounter, "RefreshTokenHandler.Handle")
 		return
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to commit transaction!", http.StatusInternalServerError, err), span, log, h.RefreshTokenCounter, "refresh_token")
+		reserr.ProcessError(c, reserr.InternalServerError(err, "Failed to commit transaction"), span, log, h.RefreshTokenCounter, "RefreshTokenHandler.Handle")
 		return
 	}
 
 	h.RefreshTokenCounter.WithLabelValues("success").Inc()
-	c.JSON(http.StatusOK, RefreshTokenResult{
+	c.JSON(http.StatusOK, &RefreshTokenResponse{
+		BaseResponse: resp.BaseResponse{
+			Success: true,
+			Message: "Operation RefreshToken completed successfully.",
+		},
 		Tokens: newTokenPair,
 	})
 }

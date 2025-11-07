@@ -28,7 +28,10 @@ export class AuthAPI {
   }
 
   async refreshToken(params: RefreshTokenParams): NexeresResponse<RefreshTokenResponse> {
-    const result = await this.client.post<RefreshTokenResponse>("/api/auth/refresh", null, {
+    const result = await this.client.post<RefreshTokenResponse>("/api/auth/refresh", {
+      userIp: params.userIp,
+      userAgent: params.userAgent
+    }, {
       headers: {
         'X-NEXERES-Refresh-Token': params.refreshToken
       }
@@ -68,6 +71,12 @@ export type LoginParams = {
   password: string;
   /** Optional return URL for the login flow, if Nexeres is set with multi-tenancy */
   flowReturnTo?: string | undefined;
+
+  /** The user's IP address */
+  userIp: string;
+
+  /** The user's user agent string */
+  userAgent: string;
 }
 
 /** Response from the login API */
@@ -145,6 +154,12 @@ export type VerifyEmailResponse = {
 export type RefreshTokenParams = {
   /** The refresh token */
   refreshToken: string;
+
+  /** The user's IP address */
+  userIp: string;
+
+  /** The user's user agent string */
+  userAgent: string;
 }
 
 /** Response from refreshing a token */

@@ -125,22 +125,22 @@ func (s *StringOrSlice) MarshalJSON() ([]byte, error) {
 
 func NewS3Store() *S3Store {
 	cfg := aws.Config{
-		Region: config.Stores.S3.Region,
+		Region: config.C.Stores.S3.Region,
 		Credentials: credentials.NewStaticCredentialsProvider(
-			config.Stores.S3.AccessKeyID,
-			config.Stores.S3.SecretAccessKey,
+			config.C.Stores.S3.AccessKeyID,
+			config.C.Stores.S3.SecretAccessKey,
 			"",
 		),
 	}
 	// If the endpoint is set, use it; otherwise, use the default AWS endpoint.
 	scheme := "http"
-	if config.Stores.S3.UseSSL {
+	if config.C.Stores.S3.UseSSL {
 		scheme = "https"
 	}
 	return &S3Store{
 		Client: s3.NewFromConfig(cfg, func(o *s3.Options) {
-			if strings.TrimSpace(config.Stores.S3.Endpoint) != "" {
-				endpoint := scheme + "://" + strings.TrimSuffix(config.Stores.S3.Endpoint, "/")
+			if strings.TrimSpace(config.C.Stores.S3.Endpoint) != "" {
+				endpoint := scheme + "://" + strings.TrimSuffix(config.C.Stores.S3.Endpoint, "/")
 				o.BaseEndpoint = &endpoint
 				o.UsePathStyle = true // Enable path-style URLs for non S3 endpoints
 			}
@@ -332,12 +332,12 @@ func (s *S3Store) DeleteObject(ctx context.Context, key string) error {
 // Note: This method does not return a pre-signed URL, so it may not be accessible if the object is private.
 func (s *S3Store) GetObjectURL(ctx context.Context, key string) (string, error) {
 	// For stores other than AWS S3, we can return a path style URL.
-	if config.Stores.S3.Endpoint != "" {
-		return fmt.Sprintf("%s://%s/%s/%s", s.EndpointScheme, strings.TrimSuffix(config.Stores.S3.Endpoint, "/"), *s.Bucket, key), nil
+	if config.C.Stores.S3.Endpoint != "" {
+		return fmt.Sprintf("%s://%s/%s/%s", s.EndpointScheme, strings.TrimSuffix(config.C.Stores.S3.Endpoint, "/"), *s.Bucket, key), nil
 	}
 	// For the public file access, we need to prepend the bucket name to the endpoint.
 	// like "https://<bucket-name>.s3.<region>.amazonaws.com"
-	return fmt.Sprintf("%s://%s.s3.%s.amazonaws.com/%s", s.EndpointScheme, *s.Bucket, config.Stores.S3.Region, key), nil
+	return fmt.Sprintf("%s://%s.s3.%s.amazonaws.com/%s", s.EndpointScheme, *s.Bucket, config.C.Stores.S3.Region, key), nil
 }
 
 // STUB, we just return a value using GetObjectURL

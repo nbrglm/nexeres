@@ -18,41 +18,75 @@
     "host": "localhost:3360",
     "basePath": "/",
     "paths": {
-        "/api/admin/config": {
-            "get": {
-                "description": "Retrieves the current configuration of the application.",
+        "/api/admin/orgs/:orgId/domains/:domain": {
+            "post": {
+                "description": "Handles AdminUpdateDomain requests",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "Admin"
+                    "admin"
                 ],
-                "summary": "Get current configuration",
+                "summary": "AdminUpdateDomain Endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Domain",
+                        "name": "domain",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.AdminUpdateDomainRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
-                        "description": "Current configuration",
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/config.CompleteConfig"
+                            "$ref": "#/definitions/admin.AdminUpdateDomainResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     }
                 }
             }
         },
-        "/api/admin/login": {
+        "/api/admin/orgs/{orgId}": {
             "post": {
-                "description": "Sends a login code to the admin's email if it exists",
+                "description": "Handles AdminUpdateOrg requests",
                 "consumes": [
                     "application/json"
                 ],
@@ -62,49 +96,56 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "Admin login",
+                "summary": "AdminUpdateOrg Endpoint",
                 "parameters": [
                     {
-                        "description": "Admin login data",
-                        "name": "data",
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body",
+                        "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/admin_handlers.AdminLoginData"
+                            "$ref": "#/definitions/admin.AdminUpdateOrgRequest"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Admin Login Result",
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin_handlers.AdminLoginResult"
+                            "$ref": "#/definitions/admin.AdminUpdateOrgResponse"
                         }
                     },
                     "400": {
-                        "description": "Invalid request",
+                        "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "500": {
-                        "description": "Internal server error",
+                        "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     }
                 }
             }
         },
-        "/api/admin/login/verify": {
-            "post": {
-                "description": "Verifies the admin login using the code sent to email",
+        "/api/admin/orgs/{orgId}/domains": {
+            "put": {
+                "description": "Handles AdminCreateDomain requests",
                 "consumes": [
                     "application/json"
                 ],
@@ -114,41 +155,399 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "Verify admin login",
+                "summary": "AdminCreateDomain Endpoint",
                 "parameters": [
                     {
-                        "description": "Verify admin login data",
-                        "name": "data",
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body",
+                        "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/admin_handlers.VerifyAdminLoginData"
+                            "$ref": "#/definitions/admin.AdminCreateDomainRequest"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Verify Admin Login Result",
+                        "description": "OK",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/admin.AdminCreateDomainResponse"
                         }
                     },
                     "400": {
-                        "description": "Invalid request",
+                        "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "500": {
-                        "description": "Internal server error",
+                        "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/orgs/{orgId}/domains/{domain}": {
+            "delete": {
+                "description": "Handles AdminDeleteDomain requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "AdminDeleteDomain Endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Domain",
+                        "name": "domain",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.AdminDeleteDomainResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/orgs/{orgId}/domains/{domain}/verify": {
+            "post": {
+                "description": "Handles AdminVerifyDomain requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "AdminVerifyDomain Endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Domain to verify",
+                        "name": "domain",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.AdminVerifyDomainResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/orgs/{orgId}/domains/{domain}/verify/code": {
+            "get": {
+                "description": "Handles AdminGetDomainVerifyCode requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "AdminGetDomainVerifyCode Endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Domain",
+                        "name": "domain",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.AdminGetDomainVerifyCodeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/orgs/{orgId}/roles": {
+            "put": {
+                "description": "Handles CreateRole requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "CreateRole Endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.AdminCreateRoleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.AdminCreateRoleResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/orgs/{orgId}/roles/{roleId}": {
+            "post": {
+                "description": "Handles AdminUpdateRole requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "AdminUpdateRole Endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Role ID",
+                        "name": "roleId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.AdminUpdateRoleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.AdminUpdateRoleResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Handles AdminDeleteRole requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "AdminDeleteRole Endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Role ID",
+                        "name": "roleId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.AdminDeleteRoleResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     }
                 }
@@ -156,7 +555,7 @@
         },
         "/api/auth/flow/{flowId}": {
             "get": {
-                "description": "Retrieves user flow data based on the provided flow ID.",
+                "description": "Handles GetFlow requests",
                 "consumes": [
                     "application/json"
                 ],
@@ -164,9 +563,9 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Auth"
+                    "auth"
                 ],
-                "summary": "Get User Flow Data",
+                "summary": "GetFlow Endpoint",
                 "parameters": [
                     {
                         "type": "string",
@@ -178,21 +577,27 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "User Flow Data",
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.UserFlowData"
+                            "$ref": "#/definitions/handlers.GetFlowResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     }
                 }
@@ -200,7 +605,7 @@
         },
         "/api/auth/login": {
             "post": {
-                "description": "Handles user login requests.",
+                "description": "Handles Login requests",
                 "consumes": [
                     "application/json"
                 ],
@@ -208,43 +613,43 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Auth"
+                    "auth"
                 ],
-                "summary": "User Login",
+                "summary": "Login Endpoint",
                 "parameters": [
                     {
-                        "description": "User Login Data",
-                        "name": "data",
+                        "description": "Request body",
+                        "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.UserLoginData"
+                            "$ref": "#/definitions/handlers.LoginRequest"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "User Login Result",
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.UserLoginResult"
+                            "$ref": "#/definitions/handlers.LoginResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "401": {
-                        "description": "Unauthorized - Invalid Credentials or User does not belong to any organization",
+                        "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     }
                 }
@@ -252,7 +657,7 @@
         },
         "/api/auth/logout": {
             "post": {
-                "description": "Logs out the user by revoking their session using session token or refresh token. Requires atleast one of the tokens.",
+                "description": "Handles Logout requests",
                 "consumes": [
                     "application/json"
                 ],
@@ -260,9 +665,9 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Auth"
+                    "auth"
                 ],
-                "summary": "Logout user",
+                "summary": "Logout Endpoint",
                 "parameters": [
                     {
                         "type": "string",
@@ -279,27 +684,27 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Logout result",
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.LogoutResult"
+                            "$ref": "#/definitions/handlers.LogoutResponse"
                         }
                     },
                     "400": {
-                        "description": "Bad Request - Invalid or missing tokens",
+                        "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "401": {
-                        "description": "Unauthorized - Invalid or expired tokens",
+                        "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "500": {
-                        "description": "Internal server error",
+                        "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     }
                 }
@@ -307,7 +712,7 @@
         },
         "/api/auth/refresh": {
             "post": {
-                "description": "Handles token refresh requests.",
+                "description": "Handles RefreshToken requests",
                 "consumes": [
                     "application/json"
                 ],
@@ -315,10 +720,19 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Auth"
+                    "auth"
                 ],
-                "summary": "Refresh Token",
+                "summary": "RefreshToken Endpoint",
                 "parameters": [
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.RefreshTokenRequest"
+                        }
+                    },
                     {
                         "type": "string",
                         "description": "Refresh token",
@@ -329,27 +743,27 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "New tokens",
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.RefreshTokenResult"
+                            "$ref": "#/definitions/handlers.RefreshTokenResponse"
                         }
                     },
                     "400": {
-                        "description": "Bad Request - Invalid or missing tokens",
+                        "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "401": {
-                        "description": "Unauthorized - Invalid or expired tokens - Proceed to Login",
+                        "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "500": {
-                        "description": "Internal server error",
+                        "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     }
                 }
@@ -357,7 +771,7 @@
         },
         "/api/auth/signup": {
             "post": {
-                "description": "Handles user registration requests.",
+                "description": "Handles Signup requests",
                 "consumes": [
                     "application/json"
                 ],
@@ -365,43 +779,43 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Auth"
+                    "auth"
                 ],
-                "summary": "User Signup",
+                "summary": "Signup Endpoint",
                 "parameters": [
                     {
-                        "description": "User Signup Data",
-                        "name": "data",
+                        "description": "Request body",
+                        "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.UserSignupData"
+                            "$ref": "#/definitions/handlers.SignupRequest"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "User Signup Result",
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.UserSignupResult"
+                            "$ref": "#/definitions/handlers.SignupResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "401": {
-                        "description": "Unauthorized - Invalid Invite Token or Missing Invite Token or Domain Not Allowed",
+                        "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     }
                 }
@@ -409,7 +823,7 @@
         },
         "/api/auth/verify-email/send": {
             "post": {
-                "description": "Sends a verification email to the user.",
+                "description": "Handles SendVerifyEmail requests",
                 "consumes": [
                     "application/json"
                 ],
@@ -417,37 +831,43 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Auth"
+                    "auth"
                 ],
-                "summary": "Send Verification Email",
+                "summary": "SendVerifyEmail Endpoint",
                 "parameters": [
                     {
-                        "description": "Send Verification Email Data",
-                        "name": "data",
+                        "description": "Request body",
+                        "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.SendVerificationEmailData"
+                            "$ref": "#/definitions/handlers.SendVerifyEmailRequest"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Send Verification Email Result",
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.SendVerificationEmailResult"
+                            "$ref": "#/definitions/handlers.SendVerifyEmailResponse"
                         }
                     },
                     "400": {
-                        "description": "Bad Request - Invalid Input or User does not exist",
+                        "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     }
                 }
@@ -455,7 +875,7 @@
         },
         "/api/auth/verify-email/verify": {
             "post": {
-                "description": "Verifies the email using the provided token.",
+                "description": "Handles VerifyEmailToken requests",
                 "consumes": [
                     "application/json"
                 ],
@@ -463,37 +883,284 @@
                     "application/json"
                 ],
                 "tags": [
-                    "Auth"
+                    "auth"
                 ],
-                "summary": "Verify Email Token",
+                "summary": "VerifyEmailToken Endpoint",
                 "parameters": [
                     {
-                        "description": "Verify Email Token Data",
-                        "name": "data",
+                        "description": "Request body",
+                        "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.VerifyEmailTokenData"
+                            "$ref": "#/definitions/handlers.VerifyEmailTokenRequest"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Verify Email Token Result",
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.VerifyEmailTokenResult"
+                            "$ref": "#/definitions/handlers.VerifyEmailTokenResponse"
                         }
                     },
                     "400": {
-                        "description": "Bad Request - Invalid Input or Token",
+                        "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/sys/admin/config": {
+            "get": {
+                "description": "Handles SysAdminGetConfig requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sys_admin"
+                ],
+                "summary": "SysAdminGetConfig Endpoint",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sys_admin.SysAdminGetConfigResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/sys/admin/orgs": {
+            "put": {
+                "description": "Handles SysAdminCreateOrg requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sys_admin"
+                ],
+                "summary": "SysAdminCreateOrg Endpoint",
+                "parameters": [
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sys_admin.SysAdminCreateOrgRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sys_admin.SysAdminCreateOrgResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Handles SysAdminListOrgs requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sys_admin"
+                ],
+                "summary": "SysAdminListOrgs Endpoint",
+                "parameters": [
+                    {
+                        "description": "Request body",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sys_admin.SysAdminListOrgsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sys_admin.SysAdminListOrgsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/sys/admin/orgs/{orgId}": {
+            "get": {
+                "description": "Handles SysAdminGetOrgDetails requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sys_admin"
+                ],
+                "summary": "SysAdminGetOrgDetails Endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sys_admin.SysAdminGetOrgDetailsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Handles SysAdminDeleteOrg requests",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sys_admin"
+                ],
+                "summary": "SysAdminDeleteOrg Endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "orgId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sys_admin.SysAdminDeleteOrgResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/reserr.ErrorResponse"
                         }
                     }
                 }
@@ -501,41 +1168,249 @@
         }
     },
     "definitions": {
-        "admin_handlers.AdminLoginData": {
+        "admin.AdminCreateDomainRequest": {
             "type": "object",
             "required": [
-                "email"
+                "domain"
             ],
             "properties": {
-                "email": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin_handlers.AdminLoginResult": {
-            "type": "object",
-            "properties": {
-                "emailSent": {
-                    "description": "If true, the email is an existing admin email and a verification code has been sent.\nThe user can then proceed to verify the code.",
+                "autoJoin": {
                     "type": "boolean"
                 },
-                "flowId": {
-                    "description": "The flow ID for the login process. This is required for verifying the code.",
+                "autoJoinRoleId": {
+                    "type": "string"
+                },
+                "autoJoinRoleName": {
+                    "type": "string"
+                },
+                "domain": {
                     "type": "string"
                 }
             }
         },
-        "admin_handlers.VerifyAdminLoginData": {
+        "admin.AdminCreateDomainResponse": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "$ref": "#/definitions/db.OrgDomain"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "admin.AdminCreateRoleRequest": {
             "type": "object",
             "required": [
-                "code",
-                "flowId"
+                "name",
+                "permissions"
             ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "permissions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "admin.AdminCreateRoleResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/db.Role"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "admin.AdminDeleteDomainResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "admin.AdminDeleteRoleResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "admin.AdminGetDomainVerifyCodeResponse": {
+            "type": "object",
             "properties": {
                 "code": {
                     "type": "string"
                 },
-                "flowId": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "admin.AdminUpdateDomainRequest": {
+            "type": "object",
+            "properties": {
+                "autoJoin": {
+                    "type": "boolean"
+                },
+                "autoJoinRoleId": {
+                    "type": "string"
+                },
+                "autoJoinRoleName": {
+                    "type": "string"
+                }
+            }
+        },
+        "admin.AdminUpdateDomainResponse": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "$ref": "#/definitions/db.OrgDomain"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "admin.AdminUpdateOrgRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "settings"
+            ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "settings": {
+                    "$ref": "#/definitions/models.OrgSettings"
+                }
+            }
+        },
+        "admin.AdminUpdateOrgResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "admin.AdminUpdateRoleRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "permissions"
+            ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "permissions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "admin.AdminUpdateRoleResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "admin.AdminVerifyDomainResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "verified": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "cache.FlowData": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "expiresAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "mfaRequired": {
+                    "type": "boolean"
+                },
+                "mfaVerified": {
+                    "type": "boolean"
+                },
+                "orgs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/db.Org"
+                    }
+                },
+                "returnTo": {
+                    "description": "URL to redirect after flow completion",
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "userId": {
                     "type": "string"
                 }
             }
@@ -803,219 +1678,33 @@
                 }
             }
         },
-        "handlers.LogoutResult": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string"
-                },
-                "success": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "handlers.RefreshTokenResult": {
-            "type": "object",
-            "properties": {
-                "tokens": {
-                    "$ref": "#/definitions/tokens.Tokens"
-                }
-            }
-        },
-        "handlers.SendVerificationEmailData": {
-            "type": "object",
-            "required": [
-                "email"
-            ],
-            "properties": {
-                "email": {
-                    "type": "string"
-                }
-            }
-        },
-        "handlers.SendVerificationEmailResult": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string"
-                },
-                "success": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "handlers.UserFlowData": {
+        "db.GetMinimalRolesForOrgRow": {
             "type": "object",
             "properties": {
                 "createdAt": {
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "expiresAt": {
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
-                "mfaRequired": {
-                    "type": "boolean"
-                },
-                "mfaVerified": {
-                    "type": "boolean"
-                },
-                "orgs": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/models.OrgCompat"
-                    }
-                },
-                "returnTo": {
-                    "description": "URL to redirect after flow completion",
+                "roleDesc": {
                     "type": "string"
                 },
-                "ssoProvider": {
-                    "description": "For SSO Flow, e.g., \"google\", \"github\", etc.",
+                "roleName": {
                     "type": "string"
                 },
-                "ssoUserId": {
-                    "description": "For SSO Flow, External User ID",
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "userId": {
+                "updatedAt": {
                     "type": "string"
                 }
             }
         },
-        "handlers.UserLoginData": {
-            "type": "object",
-            "required": [
-                "email",
-                "password"
-            ],
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "flowReturnTo": {
-                    "description": "Optional field to store in the flow data which can be fetched by the client after login\nThis can be used to redirect the user to a specific page after login\nor to maintain the state of the application.\nIt is recommended to validate this field on the client side to prevent open redirect vulnerabilities.",
-                    "type": "string"
-                },
-                "password": {
-                    "type": "string"
-                }
-            }
-        },
-        "handlers.UserLoginResult": {
+        "db.Org": {
             "type": "object",
             "properties": {
-                "flowId": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "requireEmailVerification": {
-                    "type": "boolean"
-                },
-                "tokens": {
-                    "$ref": "#/definitions/tokens.Tokens"
-                }
-            }
-        },
-        "handlers.UserSignupData": {
-            "type": "object",
-            "required": [
-                "confirmPassword",
-                "email",
-                "firstName",
-                "lastName",
-                "password"
-            ],
-            "properties": {
-                "confirmPassword": {
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "firstName": {
-                    "type": "string"
-                },
-                "inviteToken": {
-                    "description": "Optional invite token for signup",
-                    "type": "string"
-                },
-                "lastName": {
-                    "type": "string"
-                },
-                "password": {
-                    "type": "string",
-                    "maxLength": 32,
-                    "minLength": 8
-                }
-            }
-        },
-        "handlers.UserSignupResult": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string"
-                },
-                "userId": {
-                    "type": "string"
-                }
-            }
-        },
-        "handlers.VerifyEmailTokenData": {
-            "type": "object",
-            "required": [
-                "token"
-            ],
-            "properties": {
-                "token": {
-                    "type": "string"
-                }
-            }
-        },
-        "handlers.VerifyEmailTokenResult": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string"
-                },
-                "success": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "models.ErrorResponse": {
-            "type": "object",
-            "properties": {
-                "debug": {
-                    "description": "DebugMessage is a technical message that can be used for debugging.",
-                    "type": "string"
-                },
-                "message": {
-                    "description": "Message is a user-friendly message that can be displayed to the end user.",
-                    "type": "string"
-                }
-            }
-        },
-        "models.OrgCompat": {
-            "type": "object",
-            "properties": {
-                "avatarURL": {
+                "avatarUrl": {
                     "type": "string"
                 },
                 "createdAt": {
-                    "type": "string"
-                },
-                "deletedAt": {
                     "type": "string"
                 },
                 "description": {
@@ -1028,14 +1717,556 @@
                     "type": "string"
                 },
                 "settings": {
-                    "type": "object",
-                    "additionalProperties": {}
+                    "$ref": "#/definitions/models.OrgSettings"
                 },
                 "slug": {
                     "type": "string"
                 },
                 "updatedAt": {
                     "type": "string"
+                }
+            }
+        },
+        "db.OrgDomain": {
+            "type": "object",
+            "properties": {
+                "autoJoin": {
+                    "type": "boolean"
+                },
+                "autoJoinRoleId": {
+                    "type": "string"
+                },
+                "autoJoinRoleName": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "domain": {
+                    "type": "string"
+                },
+                "orgId": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "verified": {
+                    "type": "boolean"
+                },
+                "verifiedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "db.Role": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "orgId": {
+                    "type": "string"
+                },
+                "permissions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "roleDesc": {
+                    "type": "string"
+                },
+                "roleName": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.GetFlowResponse": {
+            "type": "object",
+            "properties": {
+                "flow": {
+                    "$ref": "#/definitions/cache.FlowData"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "handlers.LoginRequest": {
+            "type": "object",
+            "required": [
+                "email",
+                "password",
+                "userIp"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "flowReturnTo": {
+                    "description": "Optional field to store in the flow data which can be fetched by the client after login\nThis can be used to redirect the user to a specific page after login\nor to maintain the state of the application.\nIt is recommended to validate this field on the client side to prevent open redirect vulnerabilities.",
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "userAgent": {
+                    "type": "string"
+                },
+                "userIp": {
+                    "description": "Metadata, required to issue tokens",
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.LoginResponse": {
+            "type": "object",
+            "properties": {
+                "flowId": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "requireEmailVerification": {
+                    "type": "boolean"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "tokens": {
+                    "$ref": "#/definitions/tokens.Tokens"
+                }
+            }
+        },
+        "handlers.LogoutResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "handlers.RefreshTokenRequest": {
+            "type": "object",
+            "required": [
+                "userIp"
+            ],
+            "properties": {
+                "userAgent": {
+                    "type": "string"
+                },
+                "userIp": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.RefreshTokenResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "tokens": {
+                    "$ref": "#/definitions/tokens.Tokens"
+                }
+            }
+        },
+        "handlers.SendVerifyEmailRequest": {
+            "type": "object",
+            "required": [
+                "email"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.SendVerifyEmailResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "handlers.SignupRequest": {
+            "type": "object",
+            "required": [
+                "confirmPassword",
+                "email",
+                "name",
+                "password"
+            ],
+            "properties": {
+                "confirmPassword": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "inviteToken": {
+                    "description": "Optional invite token for multitenant signup",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 2
+                },
+                "password": {
+                    "type": "string",
+                    "maxLength": 32,
+                    "minLength": 8
+                }
+            }
+        },
+        "handlers.SignupResponse": {
+            "type": "object",
+            "properties": {
+                "backupCodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.BackupCode"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.VerifyEmailTokenRequest": {
+            "type": "object",
+            "required": [
+                "token"
+            ],
+            "properties": {
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.VerifyEmailTokenResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "models.BackupCode": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "used": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "models.OrgMFASettings": {
+            "type": "object",
+            "properties": {
+                "required": {
+                    "type": "boolean"
+                },
+                "roles": {
+                    "description": "role name to role-id mapping",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "models.OrgSettings": {
+            "type": "object",
+            "properties": {
+                "mfa": {
+                    "$ref": "#/definitions/models.OrgMFASettings"
+                }
+            }
+        },
+        "reserr.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "debug": {
+                    "description": "DebugMessage is a technical message that can be used for debugging.",
+                    "type": "string"
+                },
+                "message": {
+                    "description": "Message is a user-friendly message that can be displayed to the end user.",
+                    "type": "string"
+                }
+            }
+        },
+        "resquery.FilterMode": {
+            "type": "string",
+            "enum": [
+                "AND",
+                "OR"
+            ],
+            "x-enum-varnames": [
+                "FilterModeAND",
+                "FilterModeOR"
+            ]
+        },
+        "resquery.FilterOption": {
+            "type": "object",
+            "properties": {
+                "field": {
+                    "type": "string"
+                },
+                "op": {
+                    "$ref": "#/definitions/resquery.QueryFilterOp"
+                },
+                "value": {}
+            }
+        },
+        "resquery.QueryFilterOp": {
+            "type": "string",
+            "enum": [
+                "contains",
+                "equals",
+                "lte",
+                "gte",
+                "lt",
+                "gt"
+            ],
+            "x-enum-varnames": [
+                "OpContains",
+                "OpEquals",
+                "OpLte",
+                "OpGte",
+                "OpLt",
+                "OpGt"
+            ]
+        },
+        "resquery.QueryFilters": {
+            "type": "object",
+            "required": [
+                "mode",
+                "options"
+            ],
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/resquery.FilterMode"
+                },
+                "options": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/definitions/resquery.FilterOption"
+                    }
+                }
+            }
+        },
+        "resquery.QueryPagination": {
+            "type": "object",
+            "required": [
+                "page",
+                "pageSize"
+            ],
+            "properties": {
+                "page": {
+                    "description": "Page is the page number to retrieve (0-based).",
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "pageSize": {
+                    "type": "integer",
+                    "maximum": 100,
+                    "minimum": 1
+                }
+            }
+        },
+        "resquery.SortOption": {
+            "type": "object",
+            "required": [
+                "direction",
+                "field"
+            ],
+            "properties": {
+                "direction": {
+                    "type": "string",
+                    "enum": [
+                        "asc",
+                        "desc",
+                        "ASC",
+                        "DESC"
+                    ]
+                },
+                "field": {
+                    "type": "string"
+                }
+            }
+        },
+        "sys_admin.SysAdminCreateOrgRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "settings",
+                "slug"
+            ],
+            "properties": {
+                "avatarURL": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "settings": {
+                    "$ref": "#/definitions/models.OrgSettings"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "sys_admin.SysAdminCreateOrgResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "orgId": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sys_admin.SysAdminDeleteOrgResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sys_admin.SysAdminGetConfigResponse": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/config.CompleteConfig"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sys_admin.SysAdminGetOrgDetailsResponse": {
+            "type": "object",
+            "properties": {
+                "domains": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/db.OrgDomain"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "org": {
+                    "$ref": "#/definitions/db.Org"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/db.GetMinimalRolesForOrgRow"
+                    }
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sys_admin.SysAdminListOrgsRequest": {
+            "type": "object",
+            "required": [
+                "sort"
+            ],
+            "properties": {
+                "filters": {
+                    "$ref": "#/definitions/resquery.QueryFilters"
+                },
+                "pagination": {
+                    "$ref": "#/definitions/resquery.QueryPagination"
+                },
+                "sort": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resquery.SortOption"
+                    }
+                }
+            }
+        },
+        "sys_admin.SysAdminListOrgsResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "orgs": {
+                    "description": "List of organizations",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/db.Org"
+                    }
+                },
+                "pagination": {
+                    "description": "Pagination details, default if not provided in the request",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resquery.QueryPagination"
+                        }
+                    ]
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "total": {
+                    "description": "Total number of organizations matching the filters (if any)",
+                    "type": "integer"
                 }
             }
         },

@@ -44,7 +44,7 @@ var (
 )
 
 func InitTokens() error {
-	privateKeyData, err := os.ReadFile(config.JWT.PrivateKeyFile)
+	privateKeyData, err := os.ReadFile(config.FilePaths[config.RS256_PRIVATE_KEY])
 	if err != nil {
 		return fmt.Errorf("failed to read private key file: %w", err)
 	}
@@ -60,7 +60,7 @@ func InitTokens() error {
 		return errors.New("private key is nil after parsing or not of type *rsa.PrivateKey")
 	}
 
-	publicKeyData, err := os.ReadFile(config.JWT.PublicKeyFile)
+	publicKeyData, err := os.ReadFile(config.FilePaths[config.RS256_PUBLIC_KEY])
 	if err != nil {
 		return fmt.Errorf("failed to read public key file: %w", err)
 	}
@@ -78,7 +78,7 @@ func InitTokens() error {
 		return errors.New("public key is nil after parsing or not of type *rsa.PublicKey")
 	}
 
-	logging.Logger.Info("Tokens initialized successfully", zap.String("privateKeyFile", config.JWT.PrivateKeyFile), zap.String("publicKeyFile", config.JWT.PublicKeyFile))
+	logging.Logger.Info("Tokens initialized successfully", zap.String("privateKeyFile", config.FilePaths[config.RS256_PRIVATE_KEY]), zap.String("publicKeyFile", config.FilePaths[config.RS256_PUBLIC_KEY]))
 
 	return nil
 }
@@ -91,17 +91,20 @@ type NexeresClaims struct {
 	// Custom claims can be added here.
 
 	// Organization information
-	OrgSlug string `json:"orgSlug"`
-	OrgName string `json:"orgName"`
-	OrgId   string `json:"orgId"`
+	OrgSlug      string    `json:"orgSlug"`
+	OrgName      string    `json:"orgName"`
+	OrgAvatarURL *string   `json:"orgAvatarUrl,omitempty"` // Optional organization avatar URL
+	OrgId        uuid.UUID `json:"orgId"`
 
 	// User information
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
-	UserFname     string `json:"userFname"`
-	UserLname     string `json:"userLname"`
-	UserAvatarURL string `json:"userAvatarUrl,omitempty"` // Optional user avatar URL
-	UserOrgRole   string `json:"userOrgRole"`
+	Email         string     `json:"email"`
+	EmailVerified bool       `json:"emailVerified"`
+	MFAEnabled    bool       `json:"mfaEnabled"`
+	OrgAdmin      bool       `json:"orgAdmin"`
+	UserName      string     `json:"userName"`
+	UserAvatarURL *string    `json:"userAvatarUrl,omitempty"` // Optional user avatar URL
+	UserOrgRole   *string    `json:"userOrgRole,omitempty"`
+	UserOrgRoleId *uuid.UUID `json:"userOrgRoleId,omitempty"`
 }
 
 // Tokens represents the result of generating a new token pair.
@@ -139,14 +142,14 @@ func GenerateTokens(userId uuid.UUID, claims NexeresClaims) (*Tokens, error) {
 	}
 
 	// Calculate expiration durations
-	sessionTokenExpirationDuration := time.Duration(config.JWT.SessionTokenExpiration) * time.Second
-	refreshTokenExpDuration := time.Duration(config.JWT.RefreshTokenExpiration) * time.Second
+	sessionTokenExpirationDuration := time.Duration(config.C.JWT.SessionTokenExpiration) * time.Second
+	refreshTokenExpDuration := time.Duration(config.C.JWT.RefreshTokenExpiration) * time.Second
 
 	// Set the standard claims as per RFC 7519 JWT specification.
 	claims.RegisteredClaims = jwt.RegisteredClaims{
-		Issuer:    config.Public.GetBaseURL(),
+		Issuer:    config.C.Public.GetBaseURL(),
 		Subject:   userId.String(),
-		Audience:  jwt.ClaimStrings(config.JWT.Audiences),
+		Audience:  jwt.ClaimStrings(config.C.JWT.Audiences),
 		ExpiresAt: jwt.NewNumericDate(now.Add(sessionTokenExpirationDuration)),
 		NotBefore: jwt.NewNumericDate(now.Add(-(time.Minute * 5))), // 5 minutes before the token is valid
 		IssuedAt:  jwt.NewNumericDate(now),
@@ -182,14 +185,14 @@ func RefreshSessionTokens(session db.Session, claims NexeresClaims) (*Tokens, er
 	now := time.Now().UTC()
 
 	// Calculate expiration durations
-	sessionTokenExpiryDuration := time.Duration(config.JWT.SessionTokenExpiration) * time.Second
-	refreshTokenExpDuration := time.Duration(config.JWT.RefreshTokenExpiration) * time.Second
+	sessionTokenExpiryDuration := time.Duration(config.C.JWT.SessionTokenExpiration) * time.Second
+	refreshTokenExpDuration := time.Duration(config.C.JWT.RefreshTokenExpiration) * time.Second
 
 	// Set the standard claims as per RFC 7519 JWT specification.
 	claims.RegisteredClaims = jwt.RegisteredClaims{
-		Issuer:    config.Public.GetBaseURL(),
+		Issuer:    config.C.Public.GetBaseURL(),
 		Subject:   session.UserID.String(),
-		Audience:  jwt.ClaimStrings(config.JWT.Audiences),
+		Audience:  jwt.ClaimStrings(config.C.JWT.Audiences),
 		ExpiresAt: jwt.NewNumericDate(now.Add(sessionTokenExpiryDuration)),
 		NotBefore: jwt.NewNumericDate(now.Add(-(time.Minute * 5))), // 5 minutes before the token is valid
 		IssuedAt:  jwt.NewNumericDate(now),
@@ -231,7 +234,9 @@ func HashTokens(tokens *Tokens) (string, string) {
 }
 
 func HasTokenBeenRevoked(ctx context.Context, q *db.Queries, sessionId uuid.UUID) (bool, error) {
-	_, err := q.GetSessionByID(ctx, sessionId)
+	_, err := q.GetSession(ctx, db.GetSessionParams{
+		ID: &sessionId,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return true, nil // Session not found, meaning it has been revoked

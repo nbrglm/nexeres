@@ -120,11 +120,11 @@ func runMigrations(up bool, down bool, cmd *cobra.Command, m *migrate.Migrate) e
 //
 // Note: Only call this AFTER the config file has been loaded, as it uses the DSN from the config.
 func getMigrations(migrationsFS embed.FS) (*migrate.Migrate, error) {
-	migrationDSN := config.Stores.PostgreSQL.DSN
+	migrationDSN := config.C.Stores.Postgres.DSN
 	if strings.HasPrefix(migrationDSN, "postgres://") {
 		migrationDSN = strings.Replace(migrationDSN, "postgres://", "pgx5://", 1)
 	} else {
-		return nil, fmt.Errorf("only 'postgres://' DSN is supported for migrations")
+		return nil, fmt.Errorf("only 'postgres://' DSN is supported for migrations, \"%v\"", config.C.Stores.Postgres.DSN)
 	}
 
 	migrationSource, err := iofs.New(migrationsFS, "sqlc/migrations")

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nbrglm/nexeres/config"
+	"github.com/nbrglm/nexeres/utils"
 )
 
 //go:embed templs
@@ -119,16 +120,17 @@ func RenderEmailTemplate(data TemplateData, tmpl EmailTemplate) (*RenderedEmailT
 
 // findAndParseTemplates is a utility function that searches for a template file in the embedded filesystem or a specified directory in the config.
 func findAndParseTemplates(htmlTmplSubPath, plainTextTmplSubPath, subjectTmplSubPath string) (subjectTemplate, htmlTemplate, plainTextTemplate *template.Template, err error) {
-	if config.Notifications.Email.TemplatesDir != nil {
-		htmlTemplate, err = template.ParseFiles(path.Join(*config.Notifications.Email.TemplatesDir, htmlTmplSubPath))
+	templatesDir := config.FilePaths[config.EMAIL_TEMPLATES]
+	if utils.DirExists(templatesDir) {
+		htmlTemplate, err = template.ParseFiles(path.Join(templatesDir, htmlTmplSubPath))
 		if err != nil {
 			return
 		}
-		plainTextTemplate, err = template.ParseFiles(path.Join(*config.Notifications.Email.TemplatesDir, plainTextTmplSubPath))
+		plainTextTemplate, err = template.ParseFiles(path.Join(templatesDir, plainTextTmplSubPath))
 		if err != nil {
 			return
 		}
-		subjectTemplate, err = template.ParseFiles(path.Join(*config.Notifications.Email.TemplatesDir, subjectTmplSubPath))
+		subjectTemplate, err = template.ParseFiles(path.Join(templatesDir, subjectTmplSubPath))
 		if err != nil {
 			return
 		}

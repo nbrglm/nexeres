@@ -2,7 +2,7 @@ package utils
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/nbrglm/nexeres/internal/models"
+	"github.com/nbrglm/nexeres/internal/reserr"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -12,7 +12,7 @@ import (
 // ProcessError is a utility function to handle errors in a consistent way across handlers.
 // It logs the error, increments the appropriate Prometheus counter, and sends a JSON response to the client.
 // Returns true if an error occurred and was handled, false otherwise.
-func ProcessError(c *gin.Context, err *models.ErrorResponse, span trace.Span, log *zap.Logger, counter *prometheus.CounterVec, opName string) bool {
+func ProcessError(c *gin.Context, err *reserr.ErrorResponse, span trace.Span, log *zap.Logger, counter *prometheus.CounterVec, opName string) bool {
 	if err == nil {
 		return false
 	}

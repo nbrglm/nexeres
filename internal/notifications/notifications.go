@@ -38,24 +38,24 @@ var SMSEnabled = false
 //
 // Sets EmailEnabled to true if the email sender is configured.
 func InitEmail() {
-	switch config.Notifications.Email.Provider {
+	switch config.C.Notifications.Email.Provider {
 	case "smtp":
-		EmailSender = NewSMTPEmailSender(config.Notifications.Email.SMTP.Host, config.Notifications.Email.SMTP.Port, config.Notifications.Email.SMTP.FromAddress, config.Notifications.Email.SMTP.Password)
+		EmailSender = NewSMTPEmailSender(config.C.Notifications.Email.SMTP.Host, config.C.Notifications.Email.SMTP.Port, config.C.Notifications.Email.SMTP.FromAddress, config.C.Notifications.Email.SMTP.Password)
 		EmailEnabled = true
 	case "sendgrid":
-		EmailSender = NewSendGridEmailSender(config.Notifications.Email.SendGrid.APIKey, config.Notifications.Email.SendGrid.FromAddress, config.Notifications.Email.SendGrid.FromName)
+		EmailSender = NewSendGridEmailSender(config.C.Notifications.Email.SendGrid.APIKey, config.C.Notifications.Email.SendGrid.FromAddress, config.C.Notifications.Email.SendGrid.FromName)
 		EmailEnabled = true
 	case "ses":
-		EmailSender = NewSESEmailSender(config.Notifications.Email.SES.Region, config.Notifications.Email.SES.AccessKeyID, config.Notifications.Email.SES.SecretAccessKey, config.Notifications.Email.SES.FromAddress, config.Notifications.Email.SES.FromName)
+		EmailSender = NewSESEmailSender(config.C.Notifications.Email.SES.Region, config.C.Notifications.Email.SES.AccessKeyID, config.C.Notifications.Email.SES.SecretAccessKey, config.C.Notifications.Email.SES.FromAddress, config.C.Notifications.Email.SES.FromName)
 		EmailEnabled = true
 	default:
 		EmailEnabled = false
-		logging.Logger.Warn("Unknown email provider, skipping email sender initialization", zap.String("provider", config.Notifications.Email.Provider))
+		logging.Logger.Warn("Unknown email provider, skipping email sender initialization", zap.String("provider", config.C.Notifications.Email.Provider))
 	}
 }
 
 func InitSMS() {
-	if config.Notifications.SMS == nil {
+	if config.C.Notifications.SMS == nil {
 		logging.Logger.Warn("SMS notifications are not configured, skipping SMS sender initialization... this will result in an error every time an SMS is sent")
 		return
 	}
@@ -74,13 +74,13 @@ type SendAdminLoginEmailParams struct {
 // The email includes the OTP code and its expiration time.
 func SendAdminLoginEmail(ctx context.Context, params SendAdminLoginEmailParams) error {
 	rendered, err := templates.RenderEmailTemplate(templates.TemplateData{
-		AppName:     config.Branding.AppName,
+		AppName:     config.C.Branding.AppName,
 		UserName:    "User",
 		UserEmail:   params.Email,
 		ActionURL:   params.Code,
 		ExpiresAt:   params.ExpiresAt,
-		CompanyName: config.Branding.CompanyNameShort,
-		SupportURL:  config.Branding.SupportURL,
+		CompanyName: config.C.Branding.CompanyNameShort,
+		SupportURL:  config.C.Branding.SupportURL,
 	}, *templates.AdminLoginTemplate)
 	if err != nil {
 		return err
@@ -98,9 +98,8 @@ func SendAdminLoginEmail(ctx context.Context, params SendAdminLoginEmailParams) 
 
 type SendWelcomeEmailParams struct {
 	User struct {
-		Email     string
-		FirstName *string
-		LastName  *string
+		Email string
+		Name  string
 	}
 	VerificationToken string
 	ExpiresAt         time.Time
@@ -110,15 +109,15 @@ type SendWelcomeEmailParams struct {
 // It uses the global EmailSender instance to send the email.
 // The email also includes a link to verify the email address.
 func SendWelcomeEmail(ctx context.Context, params SendWelcomeEmailParams) error {
-	verificationUrl := fmt.Sprintf("%s?token=%s", config.Notifications.Email.Endpoints.VerificationEmail, params.VerificationToken)
+	verificationUrl := fmt.Sprintf("%s?token=%s", config.C.Notifications.Email.Endpoints.VerificationEmail, params.VerificationToken)
 	rendered, err := templates.RenderEmailTemplate(templates.TemplateData{
-		AppName:     config.Branding.AppName,
-		UserName:    getUserName(params.User.FirstName, params.User.LastName),
+		AppName:     config.C.Branding.AppName,
+		UserName:    params.User.Name,
 		UserEmail:   params.User.Email,
 		ActionURL:   verificationUrl,
 		ExpiresAt:   params.ExpiresAt,
-		CompanyName: config.Branding.CompanyNameShort,
-		SupportURL:  config.Branding.SupportURL,
+		CompanyName: config.C.Branding.CompanyNameShort,
+		SupportURL:  config.C.Branding.SupportURL,
 	}, *templates.VerifyEmailTemplate)
 	if err != nil {
 		return err

@@ -8,7 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/nbrglm/nexeres/config"
-	"github.com/nbrglm/nexeres/internal/logging"
 	"github.com/nbrglm/nexeres/opts"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel"
@@ -20,7 +19,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	trace "go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 )
 
 // The global tracer instance.
@@ -39,17 +37,23 @@ func (e *TracingConfigurationError) Error() string {
 }
 
 func InitTracer(ctx context.Context) (err error) {
-	res := resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName(opts.Name), semconv.ServiceVersion(opts.Version), semconv.ServiceInstanceID(config.Server.InstanceID), semconv.DeploymentEnvironment(config.Environment()))
+	res := resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName(opts.Name), semconv.ServiceVersion(opts.Version), semconv.ServiceInstanceID(config.C.Server.InstanceID), semconv.DeploymentEnvironment(config.Environment()))
 
 	var exporter sdktrace.SpanExporter
 
-	switch config.Observability.OtelExporterProtocol {
+	switch config.C.Observability.Traces.Protocol {
 	case "http/protobuf":
 		options := []otlptracehttp.Option{
-			otlptracehttp.WithEndpointURL(config.Observability.OtelExporterEndpoint),
+			otlptracehttp.WithEndpointURL(config.C.Observability.Traces.Endpoint),
 		}
-		if opts.Debug {
-			options = append(options, otlptracehttp.WithInsecure()) // Use insecure connection in debug mode.
+		if config.C.Observability.Traces.EndpointPath != "" {
+			options = append(options, otlptracehttp.WithURLPath(config.C.Observability.Traces.EndpointPath))
+		}
+		if len(config.C.Observability.Traces.Headers) > 0 {
+			options = append(options, otlptracehttp.WithHeaders(config.C.Observability.Traces.Headers))
+		}
+		if config.C.Observability.Traces.WithInsecure {
+			options = append(options, otlptracehttp.WithInsecure())
 		}
 		exporter, err = otlptracehttp.New(ctx, options...)
 		if err != nil {
@@ -57,21 +61,25 @@ func InitTracer(ctx context.Context) (err error) {
 		}
 	case "grpc":
 		options := []otlptracegrpc.Option{
-			otlptracegrpc.WithEndpoint(config.Observability.OtelExporterEndpoint),
+			otlptracegrpc.WithEndpoint(config.C.Observability.Traces.Endpoint),
 		}
-		if opts.Debug {
-			options = append(options, otlptracegrpc.WithInsecure()) // Use insecure connection in debug mode.
+		if len(config.C.Observability.Traces.Headers) > 0 {
+			options = append(options, otlptracegrpc.WithHeaders(config.C.Observability.Traces.Headers))
+		}
+		if config.C.Observability.Traces.WithInsecure {
+			options = append(options, otlptracegrpc.WithInsecure())
 		}
 		exporter, err = otlptracegrpc.New(ctx, options...)
 		if err != nil {
 			return
 		}
-	default:
-		logging.Logger.Error("Unknown OTEL exporter protocol", zap.String("protocol", config.Observability.OtelExporterProtocol))
+	case "stdout":
 		exporter, err = stdouttrace.New(stdouttrace.WithPrettyPrint())
 		if err != nil {
 			return
 		}
+	default:
+		return &TracingConfigurationError{Message: "Unknown OTEL trace exporter protocol: " + config.C.Observability.Traces.Protocol}
 	}
 
 	Provider = sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithResource(res))

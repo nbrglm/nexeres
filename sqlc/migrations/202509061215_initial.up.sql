@@ -1,20 +1,34 @@
 -- Nexeres - Schema
 -- This file contains the SQL schema for Nexeres.
 -- Works with PostgreSQL 17+.
+-- Enable pgcrypto if not already enabled.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- Create the "orgs" table to store organization details.
 CREATE TABLE IF NOT EXISTS orgs (
   id UUID PRIMARY KEY NOT NULL,
   -- URL-safe slug for the org, used in URLs and as a unique identifier.
   -- It must be unique across all orgs and can only contain lowercase letters, numbers, and hyphens.
   slug VARCHAR(128) UNIQUE NOT NULL CHECK (slug ~ '^[a-z0-9-]+$'),
-  name VARCHAR(512) NOT NULL,
+  name TEXT NOT NULL,
   description TEXT,
   avatar_url TEXT,
   domain_verification_secret VARCHAR(128) NOT NULL DEFAULT encode(gen_random_bytes(32), 'hex'),
-  settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+  settings JSONB NOT NULL DEFAULT '{"mfa": {"required": false, "roles": {}}}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Roles table to define custom roles and their permissions.
+CREATE TABLE IF NOT EXISTS roles (
+  id UUID PRIMARY KEY NOT NULL,
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE RESTRICT,
+  role_name TEXT NOT NULL,
+  role_desc TEXT,
+  permissions TEXT [] NOT NULL DEFAULT '{}'::TEXT [],
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ DEFAULT NULL
+  UNIQUE (org_id, role_name)
 );
 
 -- The domain is used to identify the org in Nexeres.
@@ -23,16 +37,15 @@ CREATE TABLE IF NOT EXISTS orgs (
 CREATE TABLE IF NOT EXISTS org_domains (
   -- The domain name, used to identify the org in Nexeres.
   domain VARCHAR(512) PRIMARY KEY,
-  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE RESTRICT,
   verified BOOLEAN NOT NULL DEFAULT FALSE,
   verified_at TIMESTAMPTZ,
   auto_join BOOLEAN NOT NULL DEFAULT FALSE,
+  auto_join_role_name TEXT,
+  auto_join_role_id UUID REFERENCES roles(id) ON DELETE RESTRICT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- Enable pgcrypto if not already enabled.
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Insert the default org, which is used when multitenancy is disabled.
 INSERT INTO orgs (
@@ -57,6 +70,9 @@ WHERE NOT EXISTS (
 -- Users are global entities, they can belong to multiple orgs.
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY NOT NULL,
+  -- An optional external ID, used to link the user to an external system (Not LDAP, SSO. But say, the ID in a College's database, or another system).
+  ext_id TEXT,
+  -- The email address of the user, used for login and communication.
   email VARCHAR(512) NOT NULL UNIQUE,
   -- Set to true if the user has verified their email address, or if the user is connected via OAuth or SSO.
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
@@ -70,30 +86,16 @@ CREATE TABLE IF NOT EXISTS users (
   -- The user can generate new codes at any time, which will invalidate the old codes.
   -- Only NON-NULL if the user has enabled multi-factor authentication (MFA).
   backup_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
-  first_name VARCHAR(512),
-  middle_name VARCHAR(512),
-  last_name VARCHAR(512),
+  name TEXT NOT NULL,
   avatar_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ DEFAULT NULL
-);
-
--- Roles table to define custom roles and their permissions.
-CREATE TABLE IF NOT EXISTS roles (
-  id UUID PRIMARY KEY NOT NULL,
-  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  role_name TEXT NOT NULL,
-  permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (org_id, role_name)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Junction table to associate users with orgs.
 CREATE TABLE IF NOT EXISTS user_orgs (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE RESTRICT,
   -- 'admin' means the user is an admin of the org, can manage org settings and users.
   -- if this is false, the user is a regular member of the org.
   is_org_admin BOOLEAN NOT NULL DEFAULT FALSE,
@@ -128,7 +130,6 @@ CREATE TABLE IF NOT EXISTS mfa_factors (
   secret VARCHAR(512) NOT NULL,
   -- Whether the method is verified or not.
   verified BOOLEAN NOT NULL DEFAULT FALSE,
-  last_used_at TIMESTAMPTZ DEFAULT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, factor_type, name)
@@ -161,6 +162,8 @@ CREATE TYPE verification_token_type AS ENUM ('email_verification', 'password_res
 CREATE TABLE IF NOT EXISTS verification_tokens (
   id UUID PRIMARY KEY NOT NULL,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- The email address associated with the token, used for email verification.
+  email TEXT,
   -- The type of the verification token.
   token_type verification_token_type NOT NULL,
   -- The token hash, used to verify the token.
@@ -177,11 +180,14 @@ CREATE TYPE invitation_status AS ENUM ('pending', 'accepted', 'declined', 'expir
 -- Invitations table, scoped to orgs.
 CREATE TABLE IF NOT EXISTS invitations (
   id UUID PRIMARY KEY NOT NULL,
-  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE RESTRICT,
   -- The email address of the user being invited to the org.
   email VARCHAR(512) NOT NULL,
   -- Whether the invited user should be made an admin of the org upon accepting the invitation.
   invite_as_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  -- The role_id references the roles table, which defines custom roles and their permissions.
+  -- This allows for more granular control over user permissions in the org.
+  role_id UUID REFERENCES roles(id) ON DELETE RESTRICT,
   -- The user who created the invitation, NULL if the invitation was created by the system.
   invited_by UUID REFERENCES users(id) ON DELETE
   SET NULL,
@@ -208,8 +214,7 @@ CREATE TYPE audit_log_action AS ENUM (
   'logout',
   'password_change',
   'invite_accepted',
-  'invite_declined',
-  'org_settings_updated'
+  'invite_declined'
 );
 
 -- Audit Log Entity, Enum.
@@ -225,23 +230,22 @@ CREATE TYPE audit_log_entity AS ENUM (
 );
 
 -- Audit Log Actor Type, Enum.
-CREATE TYPE log_action_actor_type AS ENUM ('user', 'sysadmin', 'system');
+CREATE TYPE log_action_actor_type AS ENUM ('user', 'orgadmin', 'sysadmin', 'system');
 
 -- Audit Log Table, scoped to orgs and users.
 CREATE TABLE IF NOT EXISTS audit_logs (
   id UUID PRIMARY KEY NOT NULL,
-  org_id UUID REFERENCES orgs(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES users(id) ON DELETE
-  SET NULL,
-    actor_type log_action_actor_type NOT NULL,
-    log_action audit_log_action NOT NULL,
-    log_entity audit_log_entity NOT NULL,
-    entity_id UUID,
-    -- A JSONB object containing additional details about the action.
-    details JSONB NOT NULL DEFAULT '{}'::jsonb,
-    ip_address INET,
-    user_agent TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  org_id UUID,
+  user_id UUID,
+  actor_type log_action_actor_type NOT NULL,
+  log_action audit_log_action NOT NULL,
+  log_entity audit_log_entity NOT NULL,
+  entity_id UUID,
+  -- A JSONB object containing additional details about the action.
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ip_address INET,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- A Function to update updated_at columns
@@ -320,12 +324,6 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 
 -- 14. users: filter or search by email
 CREATE INDEX idx_users_email ON users(email);
-
--- 15. users: filter by deleted_at (active vs soft-deleted)
-CREATE INDEX idx_users_deleted_at ON users(deleted_at);
-
--- 16. orgs: filter by deleted_at (active orgs)
-CREATE INDEX idx_orgs_deleted_at ON orgs(deleted_at);
 
 -- 17. orgs: filter/search by created_at (recent orgs)
 CREATE INDEX idx_orgs_created_at ON orgs(created_at);

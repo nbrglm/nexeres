@@ -2,27 +2,23 @@ package handlers
 
 import (
 	"errors"
+	"maps"
 	"net/http"
 	"net/netip"
-	"time"
+	"slices"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/nbrglm/nexeres/config"
 	"github.com/nbrglm/nexeres/db"
-	"github.com/nbrglm/nexeres/internal"
-	"github.com/nbrglm/nexeres/internal/cache"
 	"github.com/nbrglm/nexeres/internal/metrics"
-	"github.com/nbrglm/nexeres/internal/models"
+	"github.com/nbrglm/nexeres/internal/obs"
 	"github.com/nbrglm/nexeres/internal/password"
+	"github.com/nbrglm/nexeres/internal/reserr"
+	"github.com/nbrglm/nexeres/internal/resp"
 	"github.com/nbrglm/nexeres/internal/store"
 	"github.com/nbrglm/nexeres/internal/tokens"
-	"github.com/nbrglm/nexeres/opts"
 	"github.com/nbrglm/nexeres/utils"
 	"github.com/prometheus/client_golang/prometheus"
-	"go.uber.org/zap"
 )
 
 type LoginHandler struct {
@@ -35,20 +31,19 @@ func NewLoginHandler() *LoginHandler {
 			prometheus.CounterOpts{
 				Namespace: "nexeres",
 				Subsystem: "auth",
-				Name:      "user_login_requests",
-				Help:      "Total number of user login requests",
-			},
-			[]string{"status"},
+				Name:      "login",
+				Help:      "Total number of Login requests",
+			}, []string{"status"},
 		),
 	}
 }
 
-func (h *LoginHandler) Register(engine *gin.Engine) {
-	metrics.Collectors = append(metrics.Collectors, h.LoginCounter)
-	engine.POST("/api/auth/login", h.HandleLogin)
+func (h *LoginHandler) Register(router *gin.Engine) {
+	metrics.RegisterCollector(h.LoginCounter)
+	router.POST("/api/auth/login", h.Handle)
 }
 
-type UserLoginData struct {
+type LoginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
 
@@ -57,320 +52,181 @@ type UserLoginData struct {
 	// or to maintain the state of the application.
 	// It is recommended to validate this field on the client side to prevent open redirect vulnerabilities.
 	FlowReturnTo *string `json:"flowReturnTo,omitempty"`
+
+	// Metadata, required to issue tokens
+	UserIP    string `json:"userIp" binding:"required,ip"`
+	UserAgent string `json:"userAgent"`
 }
 
-type UserLoginResult struct {
-	Message                  string         `json:"message"`
+type LoginResponse struct {
+	resp.BaseResponse
 	Tokens                   *tokens.Tokens `json:"tokens,omitempty"`
 	RequireEmailVerification bool           `json:"requireEmailVerification"`
 	FlowID                   *string        `json:"flowId,omitempty"`
 }
 
-// HandleLogin godoc
-// @Summary User Login
-// @Description Handles user login requests.
-// @Tags Auth
+// @Summary Login Endpoint
+// @Description Handles Login requests
+// @Tags auth
 // @Accept json
 // @Produce json
-// @Param data body UserLoginData true "User Login Data"
-// @Success 200 {object} UserLoginResult "User Login Result"
-// @Failure 400 {object} models.ErrorResponse "Bad Request"
-// @Failure 401 {object} models.ErrorResponse "Unauthorized - Invalid Credentials or User does not belong to any organization"
-// @Failure 500 {object} models.ErrorResponse "Internal Server Error"
+// @Param request body LoginRequest true "Request body"
+// @Success 200 {object} LoginResponse
+// @Failure 400 {object} reserr.ErrorResponse
+// @Failure 401 {object} reserr.ErrorResponse
+// @Failure 500 {object} reserr.ErrorResponse
 // @Router /api/auth/login [post]
-func (h *LoginHandler) HandleLogin(c *gin.Context) {
-	h.LoginCounter.WithLabelValues("received").Inc()
-	if config.Multitenancy {
-		h.handleMultitenantLogin(c)
-	} else {
-		h.handleSingleTenantLogin(c)
-	}
-	// no return required, the functions above handle the response
-}
+func (h *LoginHandler) Handle(c *gin.Context) {
+	h.LoginCounter.WithLabelValues("total").Inc()
 
-func (h *LoginHandler) handleSingleTenantLogin(c *gin.Context) {
-	// For single-tenant login, we can directly validate the user's credentials
-	ctx, log, span := internal.WithContext(c.Request.Context(), "login")
-	defer span.End() // Ensure the span is ended to avoid memory leaks
+	ctx, log, span := obs.WithContext(c.Request.Context(), "LoginHandler.Handle")
+	defer span.End() // Ensure the span is ended when the function returns to prevent memory leaks
 
-	var loginData UserLoginData
-	if err := c.ShouldBindJSON(&loginData); err != nil {
-		utils.ProcessError(c, models.NewErrorResponse("Invalid input data", "Bad Request", http.StatusBadRequest, nil), span, log, h.LoginCounter, "login")
+	var req LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		reserr.ProcessError(c, reserr.BadRequest(), span, log, h.LoginCounter, "LoginHandler.Handle")
 		return
 	}
 
-	tx, err := store.PgPool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := store.PgPool.Begin(ctx)
 	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to begin transaction!", http.StatusInternalServerError, nil), span, log, h.LoginCounter, "login")
+		reserr.ProcessError(c, reserr.InternalServerError(err, "Failed to begin transaction"), span, log, h.LoginCounter, "LoginHandler.Handle")
 		return
 	}
 	defer tx.Rollback(ctx)
-
 	q := store.Querier.WithTx(tx)
 
-	log.Debug("Retrieving user information")
-	user, err := q.GetLoginInfoForUser(ctx, loginData.Email)
+	ipAddress := netip.MustParseAddr(req.UserIP)
+	userAgent := req.UserAgent
+
+	user, err := q.GetLoginInfoForUser(ctx, db.GetLoginInfoForUserParams{
+		Email: &req.Email,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		log.Debug("User not found", zap.String("email", loginData.Email))
-		utils.ProcessError(c, models.NewErrorResponse("Invalid email or password! Please try again.", "User not found!", http.StatusUnauthorized, nil), span, log, h.LoginCounter, "login")
+		utils.ProcessError(c, reserr.Unauthorized("Invalid email or password! Please try again.", "User not found!"), span, log, h.LoginCounter, "LoginHandler.Handle")
 		return
 	}
 	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse("An error occurred while processing your request. Please try again later.", "Failed to retrieve user information!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
+		utils.ProcessError(c, reserr.InternalServerError(err, "Failed to retrieve user information!"), span, log, h.LoginCounter, "LoginHandler.Handle")
+		return
+	}
+
+	if !password.VerifyPasswordMatch(*user.PasswordHash, req.Password) {
+		utils.ProcessError(c, reserr.Unauthorized("Invalid credentials! Please try again.", "Password mismatch!"), span, log, h.LoginCounter, "LoginHandler.Handle")
 		return
 	}
 
 	if !user.EmailVerified {
-		log.Debug("User email not verified", zap.String("email", loginData.Email))
-		c.JSON(http.StatusOK, &UserLoginResult{
-			Message:                  "Please verify your email before logging in.",
+		c.JSON(http.StatusOK, &LoginResponse{
+			BaseResponse: resp.BaseResponse{
+				Success: false,
+				Message: "Please verify your email before logging in.",
+			},
 			RequireEmailVerification: true,
 		})
-		return
-	}
-
-	log.Debug("Verifying user password")
-	if !password.VerifyPasswordMatch(*user.PasswordHash, loginData.Password) {
-		log.Debug("Password mismatch", zap.String("email", loginData.Email))
-		utils.ProcessError(c, models.NewErrorResponse("Invalid credentials! Please try again.", "Password mismatch!", http.StatusUnauthorized, nil), span, log, h.LoginCounter, "login")
-		return
-	}
-
-	avatarUrl := ""
-	if user.AvatarUrl != nil {
-		avatarUrl = *user.AvatarUrl
-	}
-
-	log.Debug("Generating tokens")
-	tokensResult, err := tokens.GenerateTokens(user.ID, tokens.NexeresClaims{
-		OrgSlug: opts.DefaultOrgSlug,
-		OrgName: opts.DefaultOrgName,
-		OrgId:   opts.DefaultOrgId,
-
-		Email:         user.Email,
-		EmailVerified: user.EmailVerified,
-		UserFname:     *user.FirstName,
-		UserMname:     user.MiddleName,
-		UserLname:     *user.LastName,
-		UserAvatarURL: avatarUrl,
-		UserOrgRole:   "member",
-	})
-	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to generate token pair!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
-		return
-	}
-
-	newSessionTokenHash, newRefreshTokenHash := tokens.HashTokens(tokensResult)
-	log.Debug("Creating session in database", zap.String("sessionId", tokensResult.SessionId.String()))
-
-	ipAddress := netip.MustParseAddr(c.ClientIP())
-	userAgent := c.Request.UserAgent()
-
-	_, err = q.CreateSession(ctx, db.CreateSessionParams{
-		ID:               tokensResult.SessionId,
-		UserID:           user.ID,
-		OrgID:            uuid.MustParse(opts.DefaultOrgId),
-		TokenHash:        newSessionTokenHash,
-		RefreshTokenHash: newRefreshTokenHash,
-		MfaVerified:      false,
-		MfaVerifiedAt: pgtype.Timestamptz{
-			Valid: false,
-		},
-		IpAddress: ipAddress,
-		UserAgent: userAgent,
-		ExpiresAt: pgtype.Timestamptz{
-			Time:  tokensResult.RefreshTokenExpiry,
-			Valid: true,
-		},
-	})
-
-	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to create session in the db!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
-		return
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to commit transaction!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
-		return
-	}
-
-	log.Debug("Login successful", zap.String("email", user.Email), zap.String("sessionId", tokensResult.SessionId.String()))
-	c.JSON(http.StatusOK, &UserLoginResult{
-		Message: "Login successful",
-		Tokens:  tokensResult,
-	})
-}
-
-func (h *LoginHandler) handleMultitenantLogin(c *gin.Context) {
-	ctx, log, span := internal.WithContext(c.Request.Context(), "login")
-	defer span.End() // Ensure the span is ended to avoid memory leaks
-
-	var loginData UserLoginData
-	if err := c.ShouldBindJSON(&loginData); err != nil {
-		utils.ProcessError(c, models.NewErrorResponse("Invalid input data", "Bad Request", http.StatusBadRequest, nil), span, log, h.LoginCounter, "login")
-		return
-	}
-
-	ipAddress := netip.MustParseAddr(c.ClientIP())
-	userAgent := c.Request.UserAgent()
-
-	_, err := utils.GetDomainFromEmail(loginData.Email)
-	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse("Invalid request! Please input a valid email and try again.", "Invalid email domain!", http.StatusBadRequest, nil), span, log, h.LoginCounter, "login")
-		return
-	}
-
-	tx, err := store.PgPool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to begin transaction!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
-		return
-	}
-	defer tx.Rollback(ctx)
-
-	q := store.Querier.WithTx(tx)
-
-	user, err := q.GetLoginInfoForUser(ctx, loginData.Email)
-	if errors.Is(err, pgx.ErrNoRows) {
-		utils.ProcessError(c, models.NewErrorResponse("Invalid email or password! Please try again.", "User not found!", http.StatusUnauthorized, nil), span, log, h.LoginCounter, "login")
-		return
-	}
-	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to retrieve user information!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
-		return
-	}
-
-	if !user.EmailVerified {
-		log.Debug("User email not verified", zap.String("email", loginData.Email))
-		c.JSON(http.StatusOK, &UserLoginResult{
-			Message:                  "Please verify your email before logging in.",
-			RequireEmailVerification: true,
-		})
-		return
-	}
-
-	if !password.VerifyPasswordMatch(*user.PasswordHash, loginData.Password) {
-		utils.ProcessError(c, models.NewErrorResponse("Invalid credentials! Please try again.", "Password mismatch!", http.StatusUnauthorized, nil), span, log, h.LoginCounter, "login")
 		return
 	}
 
 	// Fetch the organizations the user belongs to
-	orgs, err := q.GetUserOrgsByEmail(ctx, &user.Email)
+	orgs, err := q.GetUserOrgs(ctx, db.GetUserOrgsParams{
+		UserEmail: &user.Email,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		utils.ProcessError(c, models.NewErrorResponse("You do not belong to any organization! Please contact your administrator.", "No organizations found for the user!", http.StatusUnauthorized, nil), span, log, h.LoginCounter, "login")
+		utils.ProcessError(c, reserr.Unauthorized("You do not belong to any organization! Please contact your administrator.", "No organizations found for the user!"), span, log, h.LoginCounter, "LoginHandler.Handle")
 		return
 	}
 	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to retrieve user organizations!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
+		utils.ProcessError(c, reserr.InternalServerError(err, "Failed to retrieve user organizations!"), span, log, h.LoginCounter, "LoginHandler.Handle")
 		return
 	}
 	if len(orgs) == 0 {
-		utils.ProcessError(c, models.NewErrorResponse("You do not belong to any organization! Please contact your administrator.", "No organizations found for the user!", http.StatusUnauthorized, nil), span, log, h.LoginCounter, "login")
+		utils.ProcessError(c, reserr.Unauthorized("You do not belong to any organization! Please contact your administrator.", "No organizations found for the user!"), span, log, h.LoginCounter, "LoginHandler.Handle")
 		return
 	}
-	if len(orgs) == 1 {
-		avatarUrl := ""
-		if user.AvatarUrl != nil {
-			avatarUrl = *user.AvatarUrl
+
+	// Check mfa requirement
+	// We assume MFA factors exist and are verified; detailed validation happens in MFA endpoint.
+	// we do not handle the condition that user's MFA is disabled
+	// since we assume in the system that if a User is joining an org
+	// that requires MFA, we auto-enable MFA and if the user's email is verified (which it will be since they cannot login without it),
+	// their email will already be a factor, and that they have their backup codes ready.
+	// We assume MFA factors exist and are verified; detailed validation happens in MFA endpoint.
+	mfaRequired := user.MfaEnabled
+	for _, o := range orgs {
+		roles := slices.Collect(maps.Values(o.Org.Settings.MFA.Roles))
+		if o.Org.Settings.MFA.Required && (len(roles) == 0 || slices.Contains(roles, o.Role.ID)) {
+			mfaRequired = true
+			break
+		}
+	}
+
+	organizations := make([]db.Org, len(orgs))
+	for i := range orgs {
+		organizations[i] = orgs[i].Org
+	}
+
+	if mfaRequired || len(orgs) > 1 {
+		message := "Multiple organizations found. Please select an organization to continue."
+
+		if mfaRequired {
+			message = "Multi-factor authentication (MFA) is required for your account and has been enabled. Complete the MFA verification to continue."
 		}
 
-		// If the user belongs to a single organization, create a session for that organization
-		result, err := tokens.GenerateTokens(user.ID, tokens.NexeresClaims{
-			OrgSlug: orgs[0].Org.Slug,
-			OrgName: orgs[0].Org.Name,
-			OrgId:   orgs[0].Org.ID.String(),
-
-			Email:         user.Email,
-			EmailVerified: user.EmailVerified,
-			UserFname:     *user.FirstName,
-			UserLname:     *user.LastName,
-			UserAvatarURL: avatarUrl,
-			UserOrgRole:   orgs[0].UserOrg.Role,
-		})
-		if err != nil {
-			utils.ProcessError(c, models.NewErrorResponse("An error occurred while processing your request. Please try again later.", "Failed to generate token pair!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
-			return
-		}
-
-		newSessionTokenHash, newRefreshTokenHash := tokens.HashTokens(result)
-
-		_, err = q.CreateSession(ctx, db.CreateSessionParams{
-			ID:               result.SessionId,
-			UserID:           user.ID,
-			OrgID:            orgs[0].Org.ID,
-			TokenHash:        newSessionTokenHash,
-			RefreshTokenHash: newRefreshTokenHash,
-			MfaVerified:      false,
-			MfaVerifiedAt: pgtype.Timestamptz{
-				Valid: false,
+		flowId, err := CreateLoginFlow(
+			CreateLoginFlowParams{
+				UserId:       user.ID.String(),
+				Email:        user.Email,
+				Orgs:         organizations,
+				FlowReturnTo: req.FlowReturnTo,
+				MFARequired:  mfaRequired,
 			},
-			IpAddress: ipAddress,
-			UserAgent: userAgent,
-			ExpiresAt: pgtype.Timestamptz{
-				Time:  result.RefreshTokenExpiry,
-				Valid: true,
-			},
-		})
-
+			ctx, c, span, log, h.LoginCounter, "LoginHandler.Handle",
+		)
 		if err != nil {
-			utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to create session in the db!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
+			// CreateLoginFlow already returns error responses
+			// we need not return them again
 			return
 		}
 
-		if err := tx.Commit(ctx); err != nil {
-			utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to commit transaction!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
-			return
-		}
-
-		c.JSON(http.StatusOK, &UserLoginResult{
-			Message: "Login successful",
-			Tokens:  result,
+		h.LoginCounter.WithLabelValues("success_mfa_or_orgselect").Inc()
+		// Return the flow ID to the client to continue the login process
+		c.JSON(http.StatusOK, &LoginResponse{
+			BaseResponse: resp.BaseResponse{
+				Success: true,
+				Message: message,
+			},
+			FlowID: &flowId,
 		})
 		return
 	}
 
-	// If the user belongs to multiple organizations, create a flow to let the user select the organization
-	organizations := make([]models.OrgCompat, len(orgs))
-	for i, o := range orgs {
-		organizations[i] = *models.NewOrgCompat(&o.Org)
-	}
-
-	var flow *cache.FlowData
-
-	fId, err := uuid.NewV7()
-	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to generate flow ID!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
-		return
-	}
-	flow = &cache.FlowData{
-		ID:          fId.String(),
-		Type:        cache.FlowTypeLogin,
-		UserID:      user.ID.String(),
-		Email:       user.Email,
-		Orgs:        organizations,
-		MFARequired: false, // MFA is not required at this stage, user has not selected an org yet
-		MFAVerified: false,
-		CreatedAt:   time.Now(),
-		ExpiresAt:   time.Now().Add(10 * time.Minute), // Flow expires in 10 minutes
-	}
-
-	if loginData.FlowReturnTo != nil {
-		flow.ReturnTo = *loginData.FlowReturnTo
-	}
-
-	err = cache.StoreFlow(ctx, *flow)
-
-	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to store flow data!", http.StatusInternalServerError, err), span, log, h.LoginCounter, "login")
+	if err := tx.Commit(ctx); err != nil {
+		reserr.ProcessError(c, reserr.InternalServerError(err, "Failed to commit transaction"), span, log, h.LoginCounter, "LoginHandler.Handle")
 		return
 	}
 
-	// Return the flow ID to the client to let them select the organization
-	// The client can then use this flow ID to complete the login process
-	// by selecting the organization and calling the appropriate endpoint
-	log.Debug("Multiple organizations found for user, returning flow ID", zap.String("flowId", flow.ID), zap.String("userEmail", user.Email))
-	// Note: Do not return tokens at this stage as the user has not selected an organization
-	c.JSON(http.StatusOK, &UserLoginResult{
-		Message: "Multiple organizations found. Please select an organization to continue.",
-		FlowID:  &flow.ID,
+	// user belongs to only 1 org AND mfa is not required
+	// proceed to issue tokens
+	org := orgs[0]
+	result, err := issueTokens(IssueTokenParams{
+		Q:       q,
+		User:    NewIssueTokenUserForLoginInfo(user),
+		Org:     NewIssueTokenOrg(org),
+		UserOrg: NewIssueTokenUserOrg(org),
+		Role:    NewIssueTokenRole(org),
+	}, ipAddress, userAgent, ctx, c, span, log, h.LoginCounter, "LoginHandler.Handle")
+	if err != nil {
+		// Issue token already returns error responses
+		// we need not return them again
+		return
+	}
+
+	h.LoginCounter.WithLabelValues("success").Inc()
+	c.JSON(http.StatusOK, &LoginResponse{
+		BaseResponse: resp.BaseResponse{
+			Success: true,
+			Message: "Operation Login completed successfully.",
+		},
+		Tokens: result,
 	})
 }

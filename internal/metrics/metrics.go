@@ -23,6 +23,10 @@ func InitMetrics() {
 	prometheus.MustRegister(Collectors...)
 }
 
+func RegisterCollector(collector prometheus.Collector) {
+	Collectors = append(Collectors, collector)
+}
+
 // Add the metrics export route to the gin engine.
 //
 // The route will be available at /metrics.

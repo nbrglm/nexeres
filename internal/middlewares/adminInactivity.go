@@ -9,6 +9,14 @@ import (
 	"github.com/nbrglm/nexeres/internal/tokens"
 )
 
+// AdminInactivityReset resets the inactivity timer for admin sessions.
+//
+// It retrieves the admin token from the context, and if present, updates the session's
+// expiry time based on the configured session timeout. The new expiry time is also set
+// in the response header.
+//
+// If the admin token is not found or if there is an error retrieving or storing the
+// session, the expiry time is set to a past time to effectively expire the session.
 func AdminInactivityReset(ctx *gin.Context) {
 	adminToken := ctx.GetString(CtxAdminToken)
 	if adminToken == "" {
@@ -16,7 +24,7 @@ func AdminInactivityReset(ctx *gin.Context) {
 	}
 
 	var expiry time.Time
-	expiry = time.Now().Add(time.Second * time.Duration(config.Admins.SessionTimeout))
+	expiry = time.Now().Add(time.Second * time.Duration(config.C.Admins.SessionTimeout))
 	session, err := cache.GetAdminSession(ctx.Request.Context(), adminToken)
 	if err != nil {
 		expiry = time.Now().Add(time.Hour * (-24)) // set to past time to expire immediately

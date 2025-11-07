@@ -17,13 +17,13 @@ var (
 // This function should be called during application startup to set up the rate limiting store.
 func InitRateLimitStore() error {
 	redisPassword := ""
-	if config.Stores.Redis.Password != nil {
-		redisPassword = *config.Stores.Redis.Password
+	if config.C.Stores.Redis.Password != nil {
+		redisPassword = *config.C.Stores.Redis.Password
 	}
 	redisOpts := redis.Options{
-		Addr:     config.Stores.Redis.Address,
+		Addr:     config.C.Stores.Redis.Address,
 		Password: redisPassword,
-		DB:       config.Stores.Redis.DB,
+		DB:       config.C.Stores.Redis.DB,
 	}
 	redisClient := redis.NewClient(&redisOpts)
 	rateLimitStore, err := sredis.NewStoreWithOptions(
@@ -36,7 +36,7 @@ func InitRateLimitStore() error {
 		return err
 	}
 
-	rate, err := limiter.NewRateFromFormatted(config.Security.RateLimit.Rate)
+	rate, err := limiter.NewRateFromFormatted(config.C.Security.RateLimit.Rate)
 	if err != nil {
 		return err
 	}

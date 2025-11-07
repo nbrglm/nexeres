@@ -2,31 +2,25 @@ package handlers
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/nbrglm/nexeres/handlers/admin_handlers"
+	"github.com/nbrglm/nexeres/handlers/sys_admin"
+	"github.com/nbrglm/nexeres/internal/interfaces"
 )
 
-type Handler interface {
-	Register(engine *gin.Engine)
-}
-
-// RegisterAPIRoutes registers all API routes for the application.
 func RegisterAPIRoutes(engine *gin.Engine) {
-	handlers := []Handler{
+	handlers := []interfaces.Handler{
 		NewSignupHandler(),
-		NewVerifyEmailHandler(),
 		NewLoginHandler(),
-		NewRefreshTokenHandler(),
 		NewLogoutHandler(),
-		admin_handlers.NewAdminLoginHandler(),
-		admin_handlers.NewConfigHandler(),
+		NewRefreshTokenHandler(),
+		NewGetFlowHandler(),
+		NewSendVerifyEmailHandler(),
 	}
-
-	// Register API routes
+	handlers = append(handlers, sys_admin.GetSysAdminHandlers()...)
 	for _, handler := range handlers {
 		handler.Register(engine)
 	}
 
 	// NOTE: For resetting the inactivity timer on admin routes,
-	// we need to call `middlewares.AdminInactivityReset()` after all computations
+	// we need to call `middlewares.AdminInactivityReset()` before any computations
 	// in each handler are done.
 }

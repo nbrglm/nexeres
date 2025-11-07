@@ -11,7 +11,7 @@ import (
 	"github.com/eko/gocache/lib/v4/store"
 	redis_store "github.com/eko/gocache/store/redis/v4"
 	"github.com/nbrglm/nexeres/config"
-	"github.com/nbrglm/nexeres/internal/models"
+	"github.com/nbrglm/nexeres/db"
 	"github.com/nbrglm/nexeres/opts"
 	"github.com/redis/go-redis/v9"
 )
@@ -20,13 +20,13 @@ var cached *marshaler.Marshaler
 
 func InitCache() error {
 	redisPassword := ""
-	if config.Stores.Redis.Password != nil {
-		redisPassword = *config.Stores.Redis.Password
+	if config.C.Stores.Redis.Password != nil {
+		redisPassword = *config.C.Stores.Redis.Password
 	}
 	redisOpts := redis.Options{
-		Addr:     config.Stores.Redis.Address,
+		Addr:     config.C.Stores.Redis.Address,
 		Password: redisPassword,
-		DB:       config.Stores.Redis.DB,
+		DB:       config.C.Stores.Redis.DB,
 	}
 	redisClient := redis.NewClient(&redisOpts)
 
@@ -49,18 +49,16 @@ var (
 )
 
 type FlowData struct {
-	ID          string             `json:"id"`
-	Type        FlowType           `json:"type"`
-	UserID      string             `json:"userId"`
-	Email       string             `json:"email"`
-	Orgs        []models.OrgCompat `json:"orgs,omitempty"`
-	MFARequired bool               `json:"mfaRequired"`
-	MFAVerified bool               `json:"mfaVerified"`
-	SSOProvider string             `json:"ssoProvider,omitempty"` // For SSO Flow, e.g., "google", "github", etc.
-	SSOUserID   string             `json:"ssoUserId,omitempty"`   // For SSO Flow, External User ID
-	ReturnTo    string             `json:"returnTo,omitempty"`    // URL to redirect after flow completion
-	CreatedAt   time.Time          `json:"createdAt"`
-	ExpiresAt   time.Time          `json:"expiresAt"`
+	ID          string    `json:"id"`
+	Type        FlowType  `json:"type"`
+	UserID      string    `json:"userId"`
+	Email       string    `json:"email"`
+	Orgs        []db.Org  `json:"orgs,omitempty"`
+	MFARequired bool      `json:"mfaRequired"`
+	MFAVerified bool      `json:"mfaVerified"`
+	ReturnTo    *string   `json:"returnTo,omitempty"` // URL to redirect after flow completion
+	CreatedAt   time.Time `json:"createdAt"`
+	ExpiresAt   time.Time `json:"expiresAt"`
 }
 
 func StoreFlow(ctx context.Context, flow FlowData) error {

@@ -7,14 +7,12 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
+	"github.com/knadh/koanf/providers/structs"
+	"github.com/knadh/koanf/v2"
 	"github.com/nbrglm/nexeres/opts"
-	"github.com/nbrglm/nexeres/utils"
-	"gopkg.in/yaml.v2"
 )
 
 // Type aliases for enums
@@ -28,23 +26,7 @@ const (
 )
 
 // Variables for different configurations
-var (
-	Multitenancy  = false // Default to false, can be set to true in the config file
-	Notifications *NotificationsConfig
-	Public        *PublicConfig
-	Server        *ServerConfig
-	Observability *ObservabilityConfig
-	Password      *PasswordConfig
-	JWT           *JWTConfig
-	Branding      *BrandingConfig
-	Security      *SecurityConfig
-	Stores        *StoresConfig
-
-	// Admins is a list of credentials for admin users
-	Admins AdminConfig
-
-	Config *CompleteConfig
-)
+var C *CompleteConfig
 
 func Environment() string {
 	if opts.Debug {
@@ -57,14 +39,85 @@ func Environment() string {
 //
 // Used for logs, traces and metrics (Recommended: SigNoz)
 type ObservabilityConfig struct {
-	// The log level for nexeres.
-	LogLevel string `json:"logLevel" yaml:"logLevel" validate:"required,oneof=debug info warn error dpanic panic fatal"`
+	// Logs configuration
+	Logs LogsConfig `json:"logs" yaml:"logs" validate:"required"`
 
-	// OtelExporterEndpoint is the endpoint for the OpenTelemetry exporter
-	OtelExporterEndpoint string `json:"otelExporterEndpoint" yaml:"otelExporterEndpoint" validate:"omitempty,url"`
+	// Traces configuration
+	Traces TracesConfig `json:"traces" yaml:"traces" validate:"required"`
 
-	// OtelExporterProtocol is the protocol of the OpenTelemetry exporter
-	OtelExporterProtocol string `json:"otelExporterProtocol" yaml:"otelExporterProtocol" validate:"required,oneof=http/protobuf grpc stdout"`
+	// Metrics configuration
+	Metrics MetricsConfig `json:"metrics" yaml:"metrics" validate:"required"`
+}
+
+// LogsConfig holds the configuration for logs
+type LogsConfig struct {
+	Level string `json:"level" yaml:"level" validate:"required,oneof=debug info warn error dpanic panic fatal"`
+
+	// Endpoint is the endpoint for the OpenTelemetry logs exporter
+	// If not set, logs will be printed to stdout only.
+	Endpoint string `json:"endpoint" yaml:"endpoint" validate:"required_unless=Protocol stdout,domain"`
+
+	// EndpointPath is the URL path for the OpenTelemetry logs exporter
+	//
+	// If not set, it defaults to /v1/logs
+	EndpointPath string `json:"endpointPath" yaml:"endpointPath" validate:"excluded_unless=Protocol http/protobuf"`
+
+	// Protocol is the protocol for the OpenTelemetry logs exporter
+	// Supported values: grpc, http/protobuf, stdout
+	Protocol string `json:"protocol" yaml:"protocol" validate:"required_if=Enable true,oneof=grpc http/protobuf stdout"`
+
+	// Headers are the headers to be sent with Otel exporter requests,
+	// You can add API keys or authentication tokens here as needed by your Otel collector/platform.
+	Headers map[string]string `json:"headers" yaml:"headers"`
+
+	// WithInsecure indicates whether to use insecure connection for Otel exporter
+	WithInsecure bool `json:"withInsecure" yaml:"withInsecure"`
+}
+
+// TracesConfig holds the configuration for traces
+type TracesConfig struct {
+	// Endpoint is the endpoint for the OpenTelemetry traces exporter
+	// If not set, traces will be printed to stdout only.
+	Endpoint string `json:"endpoint" yaml:"endpoint" validate:"required_unless=Protocol stdout,omitempty,domain"`
+
+	// EndpointPath is the URL path for the OpenTelemetry traces exporter
+	//
+	// If not set, it defaults to /v1/traces
+	EndpointPath string `json:"endpointPath" yaml:"endpointPath" validate:"required_if=Protocol http/protobuf"`
+
+	// Protocol is the protocol for the OpenTelemetry traces exporter
+	// Supported values: grpc, http/protobuf, stdout
+	Protocol string `json:"protocol" yaml:"protocol" validate:"required,oneof=grpc http/protobuf stdout"`
+
+	// Headers are the headers to be sent with Otel exporter requests,
+	// You can add API keys or authentication tokens here as needed by your Otel collector/platform.
+	Headers map[string]string `json:"headers" yaml:"headers"`
+
+	// WithInsecure indicates whether to use insecure connection for Otel exporter
+	WithInsecure bool `json:"withInsecure" yaml:"withInsecure"`
+}
+
+// MetricsConfig holds the configuration for metrics
+type MetricsConfig struct {
+	// Endpoint is the endpoint for the OpenTelemetry metrics exporter
+	// If not set, metrics will be printed to stdout only.
+	Endpoint string `json:"endpoint" yaml:"endpoint" validate:"required_unless=Protocol stdout,domain"`
+
+	// EndpointPath is the URL path for the OpenTelemetry metrics exporter
+	//
+	// If not set, it defaults to /v1/metrics
+	EndpointPath string `json:"endpointPath" yaml:"endpointPath" validate:"required_if=Protocol http/protobuf"`
+
+	// Protocol is the protocol for the OpenTelemetry metrics exporter
+	// Supported values: grpc, http/protobuf, stdout
+	Protocol string `json:"protocol" yaml:"protocol" validate:"required,oneof=grpc http/protobuf stdout"`
+
+	// Headers are the headers to be sent with Otel exporter requests,
+	// You can add API keys or authentication tokens here as needed by your Otel collector/platform.
+	Headers map[string]string `json:"headers" yaml:"headers"`
+
+	// WithInsecure indicates whether to use insecure connection for Otel exporter
+	WithInsecure bool `json:"withInsecure" yaml:"withInsecure"`
 }
 
 // PublicConfig holds the public server configuration options
@@ -125,7 +178,7 @@ type ServerConfig struct {
 	// TLSConfig contains the TLS configuration for the server
 	//
 	// If TLS is enabled, the server will listen on HTTPS, else HTTP.
-	TLSConfig *TLSConfig `json:"tls,omitempty" yaml:"tls,omitempty" validate:"omitempty"`
+	TLSConfig bool `json:"tls" yaml:"tls"`
 }
 
 type AdminConfig struct {
@@ -139,19 +192,6 @@ type AdminConfig struct {
 	//
 	// In seconds, default 15 minutes
 	SessionTimeout int `json:"-" yaml:"sessionTimeout" validate:"required,min=300"`
-}
-
-// TLSConfig holds the TLS configuration for the server
-type TLSConfig struct {
-	// CertFile is the path to the TLS certificate file
-	CertFile string `json:"-" yaml:"certFile" validate:"required,file"`
-
-	// KeyFile is the path to the TLS private key file
-	KeyFile string `json:"-" yaml:"keyFile" validate:"required,file"`
-
-	// CAFile is the path to the TLS CA certificate file
-	// If provided, the server will use this CA to verify client certificates
-	CAFile *string `json:"-" yaml:"caFile,omitempty" validate:"omitempty,file"`
 }
 
 // PasswordConfig holds the configuration for password policies
@@ -198,12 +238,6 @@ type JWTConfig struct {
 	// Refresh token expiration time in seconds (default: 30d, 2592000)
 	RefreshTokenExpiration int `json:"refreshTokenExpiration" yaml:"refreshTokenExpiration" validate:"required,min=86400"`
 
-	// Path to the private key file for RS256 algorithm
-	PrivateKeyFile string `json:"-" yaml:"privateKeyFile" validate:"required,file"`
-
-	// Path to the public key file for RS256 algorithm
-	PublicKeyFile string `json:"-" yaml:"publicKeyFile" validate:"required,file"`
-
 	// Audiences claim for the JWT.
 	//
 	// NOTE: This is NOT for OIDC. This is for the session tokens! OIDC configuration is stored in the DB per tenant.
@@ -238,9 +272,6 @@ type EmailNotificationConfig struct {
 
 	// Endpoints holds the configuration for URLs inside emails.
 	Endpoints EmailEndpointsConfig `json:"endpoints" yaml:"endpoints" validate:"required"`
-
-	// TemplatesDir is the directory where email templates are stored.
-	TemplatesDir *string `json:"-" yaml:"templatesDir,omitempty" validate:"omitempty,file"`
 }
 
 // EmailEndpointsConfig holds the configuration for URLs inside emails.
@@ -309,9 +340,6 @@ type SESProviderConfig struct {
 type SMSNotificationConfig struct {
 	// TODO: Implement SMSNotificationConfig
 	Provider string `json:"provider" yaml:"provider" validate:"required,oneof=twilio"`
-
-	// TemplatesDir is the directory where SMS templates are stored.
-	TemplatesDir *string `json:"-" yaml:"templatesDir,omitempty" validate:"omitempty,file"`
 }
 
 // BrandingConfig holds the configuration for branding elements such as names.
@@ -382,8 +410,8 @@ type RateLimitConfig struct {
 
 // StoresConfig holds the configuration for the different stores like postgres,redis, s3-like.
 type StoresConfig struct {
-	// PostgreSQL configuration
-	PostgreSQL PostgreSQLConfig `json:"-" yaml:"postgres" validate:"required"`
+	// Postgres configuration
+	Postgres PostgreSQLConfig `json:"-" yaml:"postgres" validate:"required"`
 
 	// Redis configuration
 	Redis RedisConfig `json:"-" yaml:"redis" validate:"required"`
@@ -437,7 +465,7 @@ type CompleteConfig struct {
 	// Admins is a list of credentials
 	Admins        AdminConfig         `json:"-" yaml:"admins" validate:"required"`
 	Public        PublicConfig        `json:"public" yaml:"public" validate:"required"`
-	Multitenancy  *bool               `json:"multitenancy" yaml:"multitenancy" validate:"required"`
+	Multitenancy  bool                `json:"multitenancy" yaml:"multitenancy"`
 	Server        ServerConfig        `json:"-" yaml:"server" validate:"required"`
 	Observability ObservabilityConfig `json:"-" yaml:"observability" validate:"required"`
 	Password      PasswordConfig      `json:"-" yaml:"password" validate:"required"`
@@ -446,6 +474,19 @@ type CompleteConfig struct {
 	Branding      BrandingConfig      `json:"branding" yaml:"branding" validate:"required"`
 	Security      SecurityConfig      `json:"security" yaml:"security" validate:"required"`
 	Stores        StoresConfig        `json:"-" yaml:"stores" validate:"required"`
+}
+
+func (c *CompleteConfig) KoanfMerge(other *koanf.Koanf) (*koanf.Koanf, error) {
+	kf := koanf.New(".")
+	if err := kf.Load(structs.Provider(defaultConfig, "yaml"), nil); err != nil {
+		return nil, err
+	}
+
+	if err := other.Merge(kf); err != nil {
+		return nil, err
+	}
+
+	return other, nil
 }
 
 // ConfigError represents an error that occurs during configuration initialization/reinitialization
@@ -461,8 +502,8 @@ func (c ConfigError) Error() string {
 	return c.Message
 }
 
-func LoadConfigOptions(configFile string) error {
-	Config = new(CompleteConfig)
+func LoadConfigOptions(configFile string) (err error) {
+	C = new(CompleteConfig)
 	filePath, err := filepath.Abs(configFile)
 	if err != nil {
 		return ConfigError{
@@ -470,244 +511,72 @@ func LoadConfigOptions(configFile string) error {
 		}
 	}
 
-	file, err := os.ReadFile(filePath)
-
-	if err != nil {
-		return ConfigError{
-			Message: fmt.Sprintf("Unable to read file %s, does the file exist and has correct permissions?", filePath),
-		}
+	if err := InitKoanf(filePath); err != nil {
+		return err
 	}
-
-	file = []byte(os.ExpandEnv(string(file)))
-
-	err = yaml.Unmarshal(file, Config)
-	if err != nil {
-		return ConfigError{Message: fmt.Sprintf("Unable to read config file. Does the config file exist at %s?", configFile), UnderlyingError: err}
-	}
-
-	if err := setDefaults(); err != nil {
-		return ConfigError{Message: "Invalid Base Configuration!", UnderlyingError: err}
-	}
-
-	// Set the debug mode value before validation
-	opts.Debug = Config.Debug
-
-	if err := utils.Validator.Struct(Config); err != nil {
-		return ConfigError{Message: "Configuration validation failed", UnderlyingError: err}
-	}
-
-	// Assign the values to the global variables
-	if Config.Multitenancy != nil {
-		Multitenancy = *Config.Multitenancy
-	}
-	Admins = Config.Admins
-	Server = &Config.Server
-	Public = &Config.Public
-	Observability = &Config.Observability
-	Password = &Config.Password
-	JWT = &Config.JWT
-	Notifications = &Config.Notifications
-	Branding = &Config.Branding
-	Security = &Config.Security
-	Stores = &Config.Stores
 
 	return nil
 }
 
-func setDefaults() error {
-	if strings.TrimSpace(Config.Server.Host) == "" {
-		Config.Server.Host = "localhost"
-	}
-	if strings.TrimSpace(Config.Server.Port) == "" {
-		Config.Server.Port = "3360" // Default port for the server
-	}
-
-	if strings.TrimSpace(Config.Server.InstanceID) == "" {
-		return ConfigError{Message: "Server Instance ID cannot be empty"}
-	}
-
-	if Config.Server.TLSConfig != nil {
-		if strings.TrimSpace(Config.Server.TLSConfig.CertFile) == "" {
-			Config.Server.TLSConfig.CertFile = "/etc/nbrglm/workspace/nexeres/cert.pem"
-		}
-		if strings.TrimSpace(Config.Server.TLSConfig.KeyFile) == "" {
-			Config.Server.TLSConfig.KeyFile = "/etc/nbrglm/workspace/nexeres/key.pem"
-		}
-	}
-
-	if len(Config.Admins.Emails) == 0 {
-		return ConfigError{Message: "At least one admin email must be provided, otherwise you may not be able to change ANY admin settings!"}
-	}
-
-	if Config.Admins.SessionTimeout == 0 || Config.Admins.SessionTimeout < 300 {
-		Config.Admins.SessionTimeout = 900 // Default to 15 minutes
-	}
-
-	// Otel configuration
-	if strings.TrimSpace(Config.Observability.LogLevel) == "" {
-		if Config.Debug {
-			Config.Observability.LogLevel = "debug" // Default to debug in debug mode
-		} else {
-			Config.Observability.LogLevel = "info" // Default to info in production mode
-		}
-	}
-
-	if strings.TrimSpace(Config.Observability.OtelExporterProtocol) == "" {
-		Config.Observability.OtelExporterProtocol = "stdout" // Default to stdout if not set
-	}
-	if Config.Observability.OtelExporterProtocol != "stdout" && strings.TrimSpace(Config.Observability.OtelExporterEndpoint) == "" {
-		return ConfigError{Message: "OpenTelemetry exporter endpoint cannot be empty when using grpc or http/protobuf protocols"}
-	}
-	if Config.Observability.OtelExporterProtocol == "stdout" && strings.TrimSpace(Config.Observability.OtelExporterEndpoint) != "" {
-		return ConfigError{Message: "OpenTelemetry exporter endpoint should not be set when using stdout protocol"}
-	}
-
-	if strings.TrimSpace(string(Config.Password.Algorithm)) == "" {
-		Config.Password.Algorithm = "bcrypt"
-	}
-
-	if Config.Password.Bcrypt.Cost == 0 {
-		Config.Password.Bcrypt.Cost = 10
-	}
-
-	if Config.Password.Argon2id.Memory == 0 {
-		Config.Password.Argon2id.Memory = 64 * 1024 // 64MB, in KiB
-	}
-
-	if Config.Password.Argon2id.Iterations == 0 {
-		Config.Password.Argon2id.Iterations = 1 // Recommended default
-	}
-
-	if Config.Password.Argon2id.Parallelism == 0 {
-		Config.Password.Argon2id.Parallelism = 1 // Recommended default
-	}
-
-	if Config.Password.Argon2id.SaltLength == 0 {
-		Config.Password.Argon2id.SaltLength = 16 // Recommended default
-	}
-
-	if Config.Password.Argon2id.KeyLength == 0 {
-		Config.Password.Argon2id.KeyLength = 32 // Recommended default
-	}
-
-	if strings.TrimSpace(Config.Public.Scheme) == "" {
-		if Config.Debug {
-			Config.Public.Scheme = "http" // Default to http in debug mode
-		} else {
-			Config.Public.Scheme = "https" // Default to https in production mode
-		}
-	}
-
-	if strings.TrimSpace(Config.Public.Domain) == "" {
-		if !Config.Debug {
-			return ConfigError{Message: "Public domain cannot be empty"}
-		}
-		Config.Public.Domain = "localhost" // Default domain for debug mode
-	}
-	if strings.TrimSpace(Config.Public.SubDomain) == "" {
-		if !Config.Debug {
-			return ConfigError{Message: "Public subdomain cannot be empty"}
-		}
-		Config.Public.SubDomain = "auth" // Default subdomain for debug mode
-	}
-
-	if strings.TrimSpace(Config.Public.DebugBaseURL) == "" {
-		if Config.Debug {
-			scheme := "http"
-			if Config.Server.TLSConfig != nil {
-				scheme = "https"
-			}
-			Config.Public.DebugBaseURL = fmt.Sprintf("%s://%s:%s", scheme, Config.Server.Host, Config.Server.Port)
-		}
-		// No debug base URL in production mode
-	}
-
-	if Config.JWT.SessionTokenExpiration == 0 {
-		Config.JWT.SessionTokenExpiration = 3600 // Default to 1 hour
-	}
-
-	if Config.JWT.RefreshTokenExpiration == 0 {
-		Config.JWT.RefreshTokenExpiration = 2592000 // Default to 30 days
-	}
-
-	if len(Config.JWT.Audiences) == 0 {
-		Config.JWT.Audiences = []string{Config.Public.Domain, fmt.Sprintf("%s.%s", Config.Public.SubDomain, Config.Public.Domain)}
-	} else {
-		// Ensure the audiences contain the domain and subdomain
-		if !slices.Contains(Config.JWT.Audiences, Config.Public.Domain) {
-			Config.JWT.Audiences = append(Config.JWT.Audiences, Config.Public.Domain)
-		}
-		if !slices.Contains(Config.JWT.Audiences, fmt.Sprintf("%s.%s", Config.Public.SubDomain, Config.Public.Domain)) {
-			Config.JWT.Audiences = append(Config.JWT.Audiences, fmt.Sprintf("%s.%s", Config.Public.SubDomain, Config.Public.Domain))
-		}
-	}
-
-	if strings.TrimSpace(Config.JWT.PrivateKeyFile) == "" {
-		return ConfigError{Message: "RS256 Private Key File cannot be empty"}
-	}
-	if strings.TrimSpace(Config.JWT.PublicKeyFile) == "" {
-		return ConfigError{Message: "RS256 Public Key File cannot be empty"}
-	}
-
-	// No defaults for notifications configuration
-
-	if strings.TrimSpace(Config.Branding.AppName) == "" {
-		return ConfigError{Message: "Branding AppName cannot be empty"}
-	}
-
-	if strings.TrimSpace(Config.Branding.CompanyName) == "" {
-		return ConfigError{Message: "Branding CompanyName cannot be empty"}
-	}
-
-	if strings.TrimSpace(Config.Branding.CompanyNameShort) == "" {
-		Config.Branding.CompanyNameShort = Config.Branding.AppName // Default to AppName if not provided
-	}
-
-	if strings.TrimSpace(Config.Branding.SupportURL) == "" {
-		return ConfigError{Message: "Branding SupportURL cannot be empty"}
-	}
-
-	if len(Config.Security.CORS.AllowedMethods) == 0 {
-		// Default to common methods if not specified
-		Config.Security.CORS.AllowedMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"}
-	} else {
-		// Add the common methods
-		Config.Security.CORS.AllowedMethods = append(Config.Security.CORS.AllowedMethods, "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
-	}
-
-	if len(Config.Security.CORS.AllowedHeaders) == 0 {
-		// Set to default headers
-		Config.Security.CORS.AllowedHeaders = []string{"Content-Type", "X-Requested-With", "Accept", "Origin", "User-Agent", "X-NEXERES-Refresh-Token", "X-NEXERES-API-Key", "X-NEXERES-Session-Token"}
-	} else {
-		// Append default headers
-		Config.Security.CORS.AllowedHeaders = append(Config.Security.CORS.AllowedHeaders, "Content-Type", "X-Requested-With", "Accept", "Origin", "User-Agent", "X-NEXERES-Refresh-Token", "X-NEXERES-API-Key", "X-NEXERES-Session-Token")
-	}
-
-	if slices.Contains(Config.Security.CORS.AllowedOrigins, "*") {
-		return ConfigError{Message: "Invalid value: AllowedOrigins contains invalid '*' value!"}
-	}
-
-	if slices.Contains(Config.Security.CORS.AllowedMethods, "*") {
-		return ConfigError{Message: "Invalid value: AllowedMethods contains invalid '*' value!"}
-	}
-
-	if slices.Contains(Config.Security.CORS.AllowedHeaders, "*") {
-		return ConfigError{Message: "Invalid value: AllowedHeaders contains invalid '*' value!"}
-	}
-
-	if Config.Stores.PostgreSQL.DSN == "" {
-		return ConfigError{Message: "PostgreSQL DSN cannot be empty"}
-	}
-
-	if strings.TrimSpace(Config.Stores.Redis.Address) == "" {
-		return ConfigError{Message: "Redis address cannot be empty"}
-	}
-	if Config.Stores.Redis.DB < 0 {
-		return ConfigError{Message: "Redis DB index cannot be negative"}
-	}
-	if Config.Stores.Redis.Password != nil && strings.TrimSpace(*Config.Stores.Redis.Password) == "" {
-		return ConfigError{Message: "Redis password cannot be empty if provided"}
-	}
-
-	return nil
+var defaultConfig = CompleteConfig{
+	Debug:        true,
+	Multitenancy: false,
+	Admins: AdminConfig{
+		Emails:         []string{},
+		SessionTimeout: 900,
+	},
+	Public: PublicConfig{
+		Scheme:       "http",
+		Domain:       "localhost",
+		SubDomain:    "auth",
+		DebugBaseURL: "http://localhost:3360",
+	},
+	Server: ServerConfig{
+		Host:       "localhost",
+		Port:       "3360",
+		InstanceID: "instance.dev.1",
+		TLSConfig:  false,
+	},
+	Observability: ObservabilityConfig{
+		Logs: LogsConfig{
+			Protocol: "stdout",
+		},
+		Traces: TracesConfig{
+			Protocol: "stdout",
+		},
+		Metrics: MetricsConfig{
+			Protocol: "stdout",
+		},
+	},
+	Password: PasswordConfig{
+		Algorithm: BcryptPasswordHashingAlgorithm,
+		Bcrypt: BcryptConfig{
+			Cost: 10,
+		},
+		Argon2id: Argon2idConfig{
+			Memory:      64 * 1024, // 64MB in KiB
+			Iterations:  1,
+			Parallelism: 1,
+			SaltLength:  16,
+			KeyLength:   32,
+		},
+	},
+	JWT: JWTConfig{
+		SessionTokenExpiration: 3600,
+		RefreshTokenExpiration: 2592000,
+	},
+	Notifications: NotificationsConfig{}, // No defaults for notifications
+	Branding:      BrandingConfig{},      // No defaults for branding
+	Security: SecurityConfig{
+		AuditLogs: AuditLogsConfig{
+			Enable: false,
+		},
+		APIKeys: []APIKeyConfig{},
+		CORS: CORSConfig{
+			AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+			AllowedHeaders: []string{"Content-Type", "X-Requested-With", "Accept", "Origin", "User-Agent", "X-NEXERES-Refresh-Token", "X-NEXERES-API-Key", "X-NEXERES-Session-Token", "X-NEXERES-Admin-Token"},
+		},
+		RateLimit: RateLimitConfig{},
+	},
+	Stores: StoresConfig{}, // No defaults for stores
 }

@@ -26,17 +26,31 @@ tasks:
     dir: sqlc/migrations
     cmd: migrate -source file://$(pwd) -database "postgres://$NEXERES_DB_USER:$NEXERES_DB_PASSWORD@$NEXERES_DB_HOST:$NEXERES_DB_PORT/$NEXERES_DB_NAME?sslmode=disable" up
 
+  db-drop:
+    desc: Drop everything in the database
+    dir: sqlc/migrations
+    cmd: migrate -source file://$(pwd) -database "postgres://$NEXERES_DB_USER:$NEXERES_DB_PASSWORD@$NEXERES_DB_HOST:$NEXERES_DB_PORT/$NEXERES_DB_NAME?sslmode=disable" drop
+
   db-migrate-down-all:
     desc: rollback all the database migrations
     dir: sqlc/migrations
     cmd: migrate -source file://$(pwd) -database "postgres://$NEXERES_DB_USER:$NEXERES_DB_PASSWORD@$NEXERES_DB_HOST:$NEXERES_DB_PORT/$NEXERES_DB_NAME?sslmode=disable" down
+
+  db-force-version:
+    desc: Force the database to a specific migration version
+    dir: sqlc/migrations
+    env:
+      FORCE_VERSION: "0"
+    cmds:
+      - if [ "{{.FORCE_VERSION}}" = "0" ]; then echo "Please provide a valid FORCE_VERSION (non-zero)"; exit 1; fi
+      - migrate -source file://$(pwd) -database "postgres://$NEXERES_DB_USER:$NEXERES_DB_PASSWORD@$NEXERES_DB_HOST:$NEXERES_DB_PORT/$NEXERES_DB_NAME?sslmode=disable" force {{.FORCE_VERSION}}
 
   dev:
     desc: Run the development server
     cmds:
       - docker compose up -d
       - sleep 5
-      - CompileDaemon -exclude-dir .git -exclude-dir run-logs -exclude-dir public -exclude-dir run -exclude-dir data -include config.nbrglm.yaml -include *.html -include *.css -build "go build -o build/debug/backend" -command "./build/debug/backend serve --config config.nbrglm.yaml"
+      - CompileDaemon -exclude-dir .git -exclude-dir run-logs -exclude-dir public -exclude-dir run -exclude-dir data -include nexeres.yaml -include *.html -include *.css -build "go build -o build/debug/backend" -command "./build/debug/backend serve --config ./nexeres.yaml"
 
   rebuild-db-dev:
     desc: Rebuild the database

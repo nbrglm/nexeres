@@ -13,9 +13,9 @@ func InitCORS(engine *gin.Engine) {
 	engine.Use(cors.New(
 		cors.Config{
 			AllowCredentials: true, // We do not let the user set this, as we need credentials for the UI.
-			AllowMethods:     config.Security.CORS.AllowedMethods,
+			AllowMethods:     config.C.Security.CORS.AllowedMethods,
 			AllowOriginFunc:  isOriginAllowed,
-			AllowHeaders:     config.Security.CORS.AllowedHeaders,
+			AllowHeaders:     config.C.Security.CORS.AllowedHeaders,
 		},
 	))
 }
@@ -23,7 +23,7 @@ func InitCORS(engine *gin.Engine) {
 func isOriginAllowed(origin string) bool {
 	// Since GetBaseURL() returns the debugBaseURL if opts.Debug is true,
 	// thus we check that first.
-	if origin == config.Public.GetBaseURL() {
+	if origin == config.C.Public.GetBaseURL() {
 		return true
 	}
 
@@ -33,7 +33,7 @@ func isOriginAllowed(origin string) bool {
 		return origin == ""
 	}
 
-	if origin == "https://"+config.Public.Domain {
+	if origin == "https://"+config.C.Public.Domain {
 		return true
 	}
 
@@ -45,7 +45,7 @@ func isOriginAllowed(origin string) bool {
 }
 
 func checkDomain(origin string) bool {
-	for _, allowedOrigin := range config.Security.CORS.AllowedOrigins {
+	for _, allowedOrigin := range config.C.Security.CORS.AllowedOrigins {
 		if strings.HasPrefix(allowedOrigin, "https://*.") {
 			// Retain the dot, hence we use 9 instead of 8
 			domain := allowedOrigin[9:]

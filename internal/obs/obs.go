@@ -1,4 +1,4 @@
-package internal
+package obs
 
 import (
 	"context"

@@ -20,7 +20,7 @@ func NewSESEmailSender(region, accessKeyId, secretAccessKey, fromAddress string,
 		),
 	}
 	if fromName == nil {
-		fromName = &config.Branding.AppName
+		fromName = &config.C.Branding.AppName
 	}
 	return &SESEmailSender{
 		Client:      sesv2.NewFromConfig(cfg),

@@ -22,7 +22,10 @@ export class AuthAPI {
         return this.client.post("/api/auth/verify-email/verify", params);
     }
     async refreshToken(params) {
-        const result = await this.client.post("/api/auth/refresh", null, {
+        const result = await this.client.post("/api/auth/refresh", {
+            userIp: params.userIp,
+            userAgent: params.userAgent
+        }, {
             headers: {
                 'X-NEXERES-Refresh-Token': params.refreshToken
             }

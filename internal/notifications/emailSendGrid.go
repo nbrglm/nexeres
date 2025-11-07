@@ -11,7 +11,7 @@ import (
 func NewSendGridEmailSender(apiKey string, fromAddress string, fromName *string) *SendGridEmailSender {
 	if fromName == nil {
 		// Default to the application name if not provided
-		fromName = &config.Branding.AppName
+		fromName = &config.C.Branding.AppName
 	}
 	return &SendGridEmailSender{
 		Client:      sendgrid.NewSendClient(apiKey),

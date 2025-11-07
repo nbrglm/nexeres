@@ -1,24 +1,56 @@
-export interface OrgJSON {
+export interface NexeresOrg {
+    /** The unique identifier for the organization */
     id: string;
-    name: string;
+    /** The unique slug for the organization */
     slug: string;
-    description?: string | undefined;
-    avatarURL?: string | undefined;
-    settings?: Record<string, any> | undefined;
+    /** The name of the organization */
+    name: string;
+    /** The description of the organization */
+    description?: string;
+    /** The avatar URL of the organization, if set */
+    avatarURL?: string;
+    settings: NexeresOrgSettings;
+    /** The creation date of the organization in ISO 8601 format */
+    createdAt: string | Date;
+    /** The last updated date of the organization in ISO 8601 format */
+    updatedAt: string | Date;
+    deletedAt?: string | Date;
+}
+export declare function NewNexeresOrg(data: NexeresOrg): NexeresOrg;
+export interface NexeresOrgSettings {
+    mfa: {
+        /** Whether MFA is required for users in this organization */
+        required: boolean;
+        roles: {
+            [key: string]: string;
+        };
+    };
+}
+export interface NexeresOrgRole {
+    id: string;
+    roleName: string;
+    roleDesc?: string;
     createdAt: string | Date;
     updatedAt: string | Date;
-    deletedAt?: string | Date | undefined;
 }
-export declare class Org {
-    id: string;
-    name: string;
-    slug: string;
-    description?: string | undefined;
-    avatarURL?: string | undefined;
-    settings?: Record<string, any> | undefined;
-    createdAt: Date;
-    updatedAt: Date;
-    deletedAt?: Date | undefined;
-    constructor(data: OrgJSON);
+export declare function NewNexeresOrgRole(data: NexeresOrgRole): NexeresOrgRole;
+export interface NexeresOrgDomain {
+    /** The domain name */
+    domain: string;
+    /** The ID of the organization this domain belongs to */
+    orgId: string;
+    /** Whether the domain has been verified */
+    verified: boolean;
+    /** The date the domain was verified in ISO 8601 format, if verified */
+    verifiedAt?: string | Date;
+    /** Whether users with this email domain should be automatically joined to the organization */
+    autoJoin: boolean;
+    /** The role ID to assign to users who join via this domain, if autoJoin is true */
+    autoJoinRoleId?: string;
+    /** The creation date of the organization domain in ISO 8601 format */
+    createdAt: string | Date;
+    /** The last updated date of the organization domain in ISO 8601 format */
+    updatedAt: string | Date;
 }
+export declare function NewNexeresOrgDomain(data: NexeresOrgDomain): NexeresOrgDomain;
 //# sourceMappingURL=org.d.ts.map

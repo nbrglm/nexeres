@@ -26,6 +26,10 @@ go.work.sum
 
 # env file
 .env
+.env.local
+
+# Config Files 
+nexeres.yaml
 
 # Logs and Configuration files
 run

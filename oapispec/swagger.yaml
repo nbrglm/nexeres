@@ -1,33 +1,165 @@
 basePath: /
 definitions:
-  admin_handlers.AdminLoginData:
+  admin.AdminCreateDomainRequest:
     properties:
-      email:
+      autoJoin:
+        type: boolean
+      autoJoinRoleId:
+        type: string
+      autoJoinRoleName:
+        type: string
+      domain:
         type: string
     required:
-    - email
+    - domain
     type: object
-  admin_handlers.AdminLoginResult:
+  admin.AdminCreateDomainResponse:
     properties:
-      emailSent:
-        description: |-
-          If true, the email is an existing admin email and a verification code has been sent.
-          The user can then proceed to verify the code.
-        type: boolean
-      flowId:
-        description: The flow ID for the login process. This is required for verifying
-          the code.
+      domain:
+        $ref: '#/definitions/db.OrgDomain'
+      message:
         type: string
+      success:
+        type: boolean
     type: object
-  admin_handlers.VerifyAdminLoginData:
+  admin.AdminCreateRoleRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      permissions:
+        items:
+          type: string
+        type: array
+    required:
+    - name
+    - permissions
+    type: object
+  admin.AdminCreateRoleResponse:
+    properties:
+      message:
+        type: string
+      role:
+        $ref: '#/definitions/db.Role'
+      success:
+        type: boolean
+    type: object
+  admin.AdminDeleteDomainResponse:
+    properties:
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  admin.AdminDeleteRoleResponse:
+    properties:
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  admin.AdminGetDomainVerifyCodeResponse:
     properties:
       code:
         type: string
-      flowId:
+      message:
         type: string
+      success:
+        type: boolean
+    type: object
+  admin.AdminUpdateDomainRequest:
+    properties:
+      autoJoin:
+        type: boolean
+      autoJoinRoleId:
+        type: string
+      autoJoinRoleName:
+        type: string
+    type: object
+  admin.AdminUpdateDomainResponse:
+    properties:
+      domain:
+        $ref: '#/definitions/db.OrgDomain'
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  admin.AdminUpdateOrgRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      settings:
+        $ref: '#/definitions/models.OrgSettings'
     required:
-    - code
-    - flowId
+    - name
+    - settings
+    type: object
+  admin.AdminUpdateOrgResponse:
+    properties:
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  admin.AdminUpdateRoleRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      permissions:
+        items:
+          type: string
+        type: array
+    required:
+    - name
+    - permissions
+    type: object
+  admin.AdminUpdateRoleResponse:
+    properties:
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  admin.AdminVerifyDomainResponse:
+    properties:
+      message:
+        type: string
+      success:
+        type: boolean
+      verified:
+        type: boolean
+    type: object
+  cache.FlowData:
+    properties:
+      createdAt:
+        type: string
+      email:
+        type: string
+      expiresAt:
+        type: string
+      id:
+        type: string
+      mfaRequired:
+        type: boolean
+      mfaVerified:
+        type: boolean
+      orgs:
+        items:
+          $ref: '#/definitions/db.Org'
+        type: array
+      returnTo:
+        description: URL to redirect after flow completion
+        type: string
+      type:
+        type: string
+      userId:
+        type: string
     type: object
   config.APIKeyConfig:
     properties:
@@ -230,65 +362,88 @@ definitions:
     - auditLogs
     - rateLimit
     type: object
-  handlers.LogoutResult:
-    properties:
-      message:
-        type: string
-      success:
-        type: boolean
-    type: object
-  handlers.RefreshTokenResult:
-    properties:
-      tokens:
-        $ref: '#/definitions/tokens.Tokens'
-    type: object
-  handlers.SendVerificationEmailData:
-    properties:
-      email:
-        type: string
-    required:
-    - email
-    type: object
-  handlers.SendVerificationEmailResult:
-    properties:
-      message:
-        type: string
-      success:
-        type: boolean
-    type: object
-  handlers.UserFlowData:
+  db.GetMinimalRolesForOrgRow:
     properties:
       createdAt:
         type: string
-      email:
+      id:
         type: string
-      expiresAt:
+      roleDesc:
+        type: string
+      roleName:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  db.Org:
+    properties:
+      avatarUrl:
+        type: string
+      createdAt:
+        type: string
+      description:
         type: string
       id:
         type: string
-      mfaRequired:
-        type: boolean
-      mfaVerified:
-        type: boolean
-      orgs:
-        items:
-          $ref: '#/definitions/models.OrgCompat'
-        type: array
-      returnTo:
-        description: URL to redirect after flow completion
+      name:
         type: string
-      ssoProvider:
-        description: For SSO Flow, e.g., "google", "github", etc.
+      settings:
+        $ref: '#/definitions/models.OrgSettings'
+      slug:
         type: string
-      ssoUserId:
-        description: For SSO Flow, External User ID
-        type: string
-      type:
-        type: string
-      userId:
+      updatedAt:
         type: string
     type: object
-  handlers.UserLoginData:
+  db.OrgDomain:
+    properties:
+      autoJoin:
+        type: boolean
+      autoJoinRoleId:
+        type: string
+      autoJoinRoleName:
+        type: string
+      createdAt:
+        type: string
+      domain:
+        type: string
+      orgId:
+        type: string
+      updatedAt:
+        type: string
+      verified:
+        type: boolean
+      verifiedAt:
+        type: string
+    type: object
+  db.Role:
+    properties:
+      createdAt:
+        type: string
+      id:
+        type: string
+      orgId:
+        type: string
+      permissions:
+        items:
+          type: string
+        type: array
+      roleDesc:
+        type: string
+      roleName:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  handlers.GetFlowResponse:
+    properties:
+      flow:
+        $ref: '#/definitions/cache.FlowData'
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  handlers.LoginRequest:
     properties:
       email:
         type: string
@@ -301,11 +456,17 @@ definitions:
         type: string
       password:
         type: string
+      userAgent:
+        type: string
+      userIp:
+        description: Metadata, required to issue tokens
+        type: string
     required:
     - email
     - password
+    - userIp
     type: object
-  handlers.UserLoginResult:
+  handlers.LoginResponse:
     properties:
       flowId:
         type: string
@@ -313,21 +474,61 @@ definitions:
         type: string
       requireEmailVerification:
         type: boolean
+      success:
+        type: boolean
       tokens:
         $ref: '#/definitions/tokens.Tokens'
     type: object
-  handlers.UserSignupData:
+  handlers.LogoutResponse:
+    properties:
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  handlers.RefreshTokenRequest:
+    properties:
+      userAgent:
+        type: string
+      userIp:
+        type: string
+    required:
+    - userIp
+    type: object
+  handlers.RefreshTokenResponse:
+    properties:
+      message:
+        type: string
+      success:
+        type: boolean
+      tokens:
+        $ref: '#/definitions/tokens.Tokens'
+    type: object
+  handlers.SendVerifyEmailRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
+  handlers.SendVerifyEmailResponse:
+    properties:
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  handlers.SignupRequest:
     properties:
       confirmPassword:
         type: string
       email:
         type: string
-      firstName:
-        type: string
       inviteToken:
-        description: Optional invite token for signup
+        description: Optional invite token for multitenant signup
         type: string
-      lastName:
+      name:
+        minLength: 2
         type: string
       password:
         maxLength: 32
@@ -336,32 +537,59 @@ definitions:
     required:
     - confirmPassword
     - email
-    - firstName
-    - lastName
+    - name
     - password
     type: object
-  handlers.UserSignupResult:
+  handlers.SignupResponse:
     properties:
+      backupCodes:
+        items:
+          $ref: '#/definitions/models.BackupCode'
+        type: array
       message:
         type: string
+      success:
+        type: boolean
       userId:
         type: string
     type: object
-  handlers.VerifyEmailTokenData:
+  handlers.VerifyEmailTokenRequest:
     properties:
       token:
         type: string
     required:
     - token
     type: object
-  handlers.VerifyEmailTokenResult:
+  handlers.VerifyEmailTokenResponse:
     properties:
       message:
         type: string
       success:
         type: boolean
     type: object
-  models.ErrorResponse:
+  models.BackupCode:
+    properties:
+      code:
+        type: string
+      used:
+        type: boolean
+    type: object
+  models.OrgMFASettings:
+    properties:
+      required:
+        type: boolean
+      roles:
+        additionalProperties:
+          type: string
+        description: role name to role-id mapping
+        type: object
+    type: object
+  models.OrgSettings:
+    properties:
+      mfa:
+        $ref: '#/definitions/models.OrgMFASettings'
+    type: object
+  reserr.ErrorResponse:
     properties:
       debug:
         description: DebugMessage is a technical message that can be used for debugging.
@@ -371,27 +599,170 @@ definitions:
           end user.
         type: string
     type: object
-  models.OrgCompat:
+  resquery.FilterMode:
+    enum:
+    - AND
+    - OR
+    type: string
+    x-enum-varnames:
+    - FilterModeAND
+    - FilterModeOR
+  resquery.FilterOption:
+    properties:
+      field:
+        type: string
+      op:
+        $ref: '#/definitions/resquery.QueryFilterOp'
+      value: {}
+    type: object
+  resquery.QueryFilterOp:
+    enum:
+    - contains
+    - equals
+    - lte
+    - gte
+    - lt
+    - gt
+    type: string
+    x-enum-varnames:
+    - OpContains
+    - OpEquals
+    - OpLte
+    - OpGte
+    - OpLt
+    - OpGt
+  resquery.QueryFilters:
+    properties:
+      mode:
+        $ref: '#/definitions/resquery.FilterMode'
+      options:
+        items:
+          $ref: '#/definitions/resquery.FilterOption'
+        minItems: 1
+        type: array
+    required:
+    - mode
+    - options
+    type: object
+  resquery.QueryPagination:
+    properties:
+      page:
+        description: Page is the page number to retrieve (0-based).
+        minimum: 0
+        type: integer
+      pageSize:
+        maximum: 100
+        minimum: 1
+        type: integer
+    required:
+    - page
+    - pageSize
+    type: object
+  resquery.SortOption:
+    properties:
+      direction:
+        enum:
+        - asc
+        - desc
+        - ASC
+        - DESC
+        type: string
+      field:
+        type: string
+    required:
+    - direction
+    - field
+    type: object
+  sys_admin.SysAdminCreateOrgRequest:
     properties:
       avatarURL:
         type: string
-      createdAt:
-        type: string
-      deletedAt:
-        type: string
       description:
-        type: string
-      id:
         type: string
       name:
         type: string
       settings:
-        additionalProperties: {}
-        type: object
+        $ref: '#/definitions/models.OrgSettings'
       slug:
         type: string
-      updatedAt:
+    required:
+    - name
+    - settings
+    - slug
+    type: object
+  sys_admin.SysAdminCreateOrgResponse:
+    properties:
+      message:
         type: string
+      orgId:
+        type: string
+      success:
+        type: boolean
+    type: object
+  sys_admin.SysAdminDeleteOrgResponse:
+    properties:
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  sys_admin.SysAdminGetConfigResponse:
+    properties:
+      config:
+        $ref: '#/definitions/config.CompleteConfig'
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  sys_admin.SysAdminGetOrgDetailsResponse:
+    properties:
+      domains:
+        items:
+          $ref: '#/definitions/db.OrgDomain'
+        type: array
+      message:
+        type: string
+      org:
+        $ref: '#/definitions/db.Org'
+      roles:
+        items:
+          $ref: '#/definitions/db.GetMinimalRolesForOrgRow'
+        type: array
+      success:
+        type: boolean
+    type: object
+  sys_admin.SysAdminListOrgsRequest:
+    properties:
+      filters:
+        $ref: '#/definitions/resquery.QueryFilters'
+      pagination:
+        $ref: '#/definitions/resquery.QueryPagination'
+      sort:
+        items:
+          $ref: '#/definitions/resquery.SortOption'
+        type: array
+    required:
+    - sort
+    type: object
+  sys_admin.SysAdminListOrgsResponse:
+    properties:
+      message:
+        type: string
+      orgs:
+        description: List of organizations
+        items:
+          $ref: '#/definitions/db.Org'
+        type: array
+      pagination:
+        allOf:
+        - $ref: '#/definitions/resquery.QueryPagination'
+        description: Pagination details, default if not provided in the request
+      success:
+        type: boolean
+      total:
+        description: Total number of organizations matching the filters (if any)
+        type: integer
     type: object
   tokens.Tokens:
     properties:
@@ -438,100 +809,367 @@ info:
   title: NBRGLM Nexeres API Spec
   version: 0.0.1
 paths:
-  /api/admin/config:
-    get:
-      description: Retrieves the current configuration of the application.
+  /api/admin/orgs/:orgId/domains/:domain:
+    post:
+      consumes:
+      - application/json
+      description: Handles AdminUpdateDomain requests
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      - description: Domain
+        in: path
+        name: domain
+        required: true
+        type: string
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.AdminUpdateDomainRequest'
       produces:
       - application/json
       responses:
         "200":
-          description: Current configuration
+          description: OK
           schema:
-            $ref: '#/definitions/config.CompleteConfig'
+            $ref: '#/definitions/admin.AdminUpdateDomainResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Get current configuration
-      tags:
-      - Admin
-  /api/admin/login:
-    post:
-      consumes:
-      - application/json
-      description: Sends a login code to the admin's email if it exists
-      parameters:
-      - description: Admin login data
-        in: body
-        name: data
-        required: true
-        schema:
-          $ref: '#/definitions/admin_handlers.AdminLoginData'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Admin Login Result
-          schema:
-            $ref: '#/definitions/admin_handlers.AdminLoginResult'
-        "400":
-          description: Invalid request
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Admin login
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: AdminUpdateDomain Endpoint
       tags:
       - admin
-  /api/admin/login/verify:
+  /api/admin/orgs/{orgId}:
     post:
       consumes:
       - application/json
-      description: Verifies the admin login using the code sent to email
+      description: Handles AdminUpdateOrg requests
       parameters:
-      - description: Verify admin login data
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      - description: Request body
         in: body
-        name: data
+        name: request
         required: true
         schema:
-          $ref: '#/definitions/admin_handlers.VerifyAdminLoginData'
+          $ref: '#/definitions/admin.AdminUpdateOrgRequest'
       produces:
       - application/json
       responses:
         "200":
-          description: Verify Admin Login Result
+          description: OK
           schema:
-            type: string
+            $ref: '#/definitions/admin.AdminUpdateOrgResponse'
         "400":
-          description: Invalid request
+          description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "500":
-          description: Internal server error
+          description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Verify admin login
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: AdminUpdateOrg Endpoint
+      tags:
+      - admin
+  /api/admin/orgs/{orgId}/domains:
+    put:
+      consumes:
+      - application/json
+      description: Handles AdminCreateDomain requests
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.AdminCreateDomainRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.AdminCreateDomainResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: AdminCreateDomain Endpoint
+      tags:
+      - admin
+  /api/admin/orgs/{orgId}/domains/{domain}:
+    delete:
+      consumes:
+      - application/json
+      description: Handles AdminDeleteDomain requests
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      - description: Domain
+        in: path
+        name: domain
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.AdminDeleteDomainResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: AdminDeleteDomain Endpoint
+      tags:
+      - admin
+  /api/admin/orgs/{orgId}/domains/{domain}/verify:
+    post:
+      consumes:
+      - application/json
+      description: Handles AdminVerifyDomain requests
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      - description: Domain to verify
+        in: path
+        name: domain
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.AdminVerifyDomainResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: AdminVerifyDomain Endpoint
+      tags:
+      - admin
+  /api/admin/orgs/{orgId}/domains/{domain}/verify/code:
+    get:
+      consumes:
+      - application/json
+      description: Handles AdminGetDomainVerifyCode requests
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      - description: Domain
+        in: path
+        name: domain
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.AdminGetDomainVerifyCodeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: AdminGetDomainVerifyCode Endpoint
+      tags:
+      - admin
+  /api/admin/orgs/{orgId}/roles:
+    put:
+      consumes:
+      - application/json
+      description: Handles CreateRole requests
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.AdminCreateRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.AdminCreateRoleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: CreateRole Endpoint
+      tags:
+      - admin
+  /api/admin/orgs/{orgId}/roles/{roleId}:
+    delete:
+      consumes:
+      - application/json
+      description: Handles AdminDeleteRole requests
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      - description: Role ID
+        in: path
+        name: roleId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.AdminDeleteRoleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: AdminDeleteRole Endpoint
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      description: Handles AdminUpdateRole requests
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      - description: Role ID
+        in: path
+        name: roleId
+        required: true
+        type: string
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.AdminUpdateRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.AdminUpdateRoleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: AdminUpdateRole Endpoint
       tags:
       - admin
   /api/auth/flow/{flowId}:
     get:
       consumes:
       - application/json
-      description: Retrieves user flow data based on the provided flow ID.
+      description: Handles GetFlow requests
       parameters:
       - description: Flow ID
         in: path
@@ -542,61 +1180,63 @@ paths:
       - application/json
       responses:
         "200":
-          description: User Flow Data
+          description: OK
           schema:
-            $ref: '#/definitions/handlers.UserFlowData'
+            $ref: '#/definitions/handlers.GetFlowResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Get User Flow Data
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: GetFlow Endpoint
       tags:
-      - Auth
+      - auth
   /api/auth/login:
     post:
       consumes:
       - application/json
-      description: Handles user login requests.
+      description: Handles Login requests
       parameters:
-      - description: User Login Data
+      - description: Request body
         in: body
-        name: data
+        name: request
         required: true
         schema:
-          $ref: '#/definitions/handlers.UserLoginData'
+          $ref: '#/definitions/handlers.LoginRequest'
       produces:
       - application/json
       responses:
         "200":
-          description: User Login Result
+          description: OK
           schema:
-            $ref: '#/definitions/handlers.UserLoginResult'
+            $ref: '#/definitions/handlers.LoginResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "401":
-          description: Unauthorized - Invalid Credentials or User does not belong
-            to any organization
+          description: Unauthorized
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: User Login
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: Login Endpoint
       tags:
-      - Auth
+      - auth
   /api/auth/logout:
     post:
       consumes:
       - application/json
-      description: Logs out the user by revoking their session using session token
-        or refresh token. Requires atleast one of the tokens.
+      description: Handles Logout requests
       parameters:
       - description: Session token
         in: header
@@ -610,30 +1250,36 @@ paths:
       - application/json
       responses:
         "200":
-          description: Logout result
+          description: OK
           schema:
-            $ref: '#/definitions/handlers.LogoutResult'
+            $ref: '#/definitions/handlers.LogoutResponse'
         "400":
-          description: Bad Request - Invalid or missing tokens
+          description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "401":
-          description: Unauthorized - Invalid or expired tokens
+          description: Unauthorized
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "500":
-          description: Internal server error
+          description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Logout user
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: Logout Endpoint
       tags:
-      - Auth
+      - auth
   /api/auth/refresh:
     post:
       consumes:
       - application/json
-      description: Handles token refresh requests.
+      description: Handles RefreshToken requests
       parameters:
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.RefreshTokenRequest'
       - description: Refresh token
         in: header
         name: X-NEXERES-Refresh-Token
@@ -643,119 +1289,285 @@ paths:
       - application/json
       responses:
         "200":
-          description: New tokens
+          description: OK
           schema:
-            $ref: '#/definitions/handlers.RefreshTokenResult'
+            $ref: '#/definitions/handlers.RefreshTokenResponse'
         "400":
-          description: Bad Request - Invalid or missing tokens
+          description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "401":
-          description: Unauthorized - Invalid or expired tokens - Proceed to Login
+          description: Unauthorized
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "500":
-          description: Internal server error
+          description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Refresh Token
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: RefreshToken Endpoint
       tags:
-      - Auth
+      - auth
   /api/auth/signup:
     post:
       consumes:
       - application/json
-      description: Handles user registration requests.
+      description: Handles Signup requests
       parameters:
-      - description: User Signup Data
+      - description: Request body
         in: body
-        name: data
+        name: request
         required: true
         schema:
-          $ref: '#/definitions/handlers.UserSignupData'
+          $ref: '#/definitions/handlers.SignupRequest'
       produces:
       - application/json
       responses:
         "200":
-          description: User Signup Result
+          description: OK
           schema:
-            $ref: '#/definitions/handlers.UserSignupResult'
+            $ref: '#/definitions/handlers.SignupResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "401":
-          description: Unauthorized - Invalid Invite Token or Missing Invite Token
-            or Domain Not Allowed
+          description: Unauthorized
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: User Signup
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: Signup Endpoint
       tags:
-      - Auth
+      - auth
   /api/auth/verify-email/send:
     post:
       consumes:
       - application/json
-      description: Sends a verification email to the user.
+      description: Handles SendVerifyEmail requests
       parameters:
-      - description: Send Verification Email Data
+      - description: Request body
         in: body
-        name: data
+        name: request
         required: true
         schema:
-          $ref: '#/definitions/handlers.SendVerificationEmailData'
+          $ref: '#/definitions/handlers.SendVerifyEmailRequest'
       produces:
       - application/json
       responses:
         "200":
-          description: Send Verification Email Result
+          description: OK
           schema:
-            $ref: '#/definitions/handlers.SendVerificationEmailResult'
+            $ref: '#/definitions/handlers.SendVerifyEmailResponse'
         "400":
-          description: Bad Request - Invalid Input or User does not exist
+          description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Send Verification Email
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: SendVerifyEmail Endpoint
       tags:
-      - Auth
+      - auth
   /api/auth/verify-email/verify:
     post:
       consumes:
       - application/json
-      description: Verifies the email using the provided token.
+      description: Handles VerifyEmailToken requests
       parameters:
-      - description: Verify Email Token Data
+      - description: Request body
         in: body
-        name: data
+        name: request
         required: true
         schema:
-          $ref: '#/definitions/handlers.VerifyEmailTokenData'
+          $ref: '#/definitions/handlers.VerifyEmailTokenRequest'
       produces:
       - application/json
       responses:
         "200":
-          description: Verify Email Token Result
+          description: OK
           schema:
-            $ref: '#/definitions/handlers.VerifyEmailTokenResult'
+            $ref: '#/definitions/handlers.VerifyEmailTokenResponse'
         "400":
-          description: Bad Request - Invalid Input or Token
+          description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Verify Email Token
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: VerifyEmailToken Endpoint
       tags:
-      - Auth
+      - auth
+  /api/sys/admin/config:
+    get:
+      consumes:
+      - application/json
+      description: Handles SysAdminGetConfig requests
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sys_admin.SysAdminGetConfigResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: SysAdminGetConfig Endpoint
+      tags:
+      - sys_admin
+  /api/sys/admin/orgs:
+    post:
+      consumes:
+      - application/json
+      description: Handles SysAdminListOrgs requests
+      parameters:
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/sys_admin.SysAdminListOrgsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sys_admin.SysAdminListOrgsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: SysAdminListOrgs Endpoint
+      tags:
+      - sys_admin
+    put:
+      consumes:
+      - application/json
+      description: Handles SysAdminCreateOrg requests
+      parameters:
+      - description: Request body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/sys_admin.SysAdminCreateOrgRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sys_admin.SysAdminCreateOrgResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: SysAdminCreateOrg Endpoint
+      tags:
+      - sys_admin
+  /api/sys/admin/orgs/{orgId}:
+    delete:
+      consumes:
+      - application/json
+      description: Handles SysAdminDeleteOrg requests
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sys_admin.SysAdminDeleteOrgResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: SysAdminDeleteOrg Endpoint
+      tags:
+      - sys_admin
+    get:
+      consumes:
+      - application/json
+      description: Handles SysAdminGetOrgDetails requests
+      parameters:
+      - description: Organization ID
+        in: path
+        name: orgId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sys_admin.SysAdminGetOrgDetailsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/reserr.ErrorResponse'
+      summary: SysAdminGetOrgDetails Endpoint
+      tags:
+      - sys_admin
 securityDefinitions:
   APIKeyAuth:
     in: header

@@ -1,0 +1,367 @@
+module NexeresConfiguration
+
+/// Configuration for the Nexeres Platform
+class NexeresConfig {
+  /// Enable debug mode
+  debug: Boolean = false
+
+  /// Manage the admin users of Nexeres.
+  ///
+  /// These users have admin access to the Nexeres platform and must belong to the person(s) hosting the platform.
+  admins: AdminConfig
+
+  /// Manage the public facing (url, etc.) configuration of Nexeres.
+  public: PublicConfig
+
+  /// Manage multitenant configuration of Nexeres.
+  multitenant: MultitenantConfig
+
+  /// Configuration for the http server aspects of Nexeres.
+  server: ServerConfig
+
+  /// Configuration for observability (logs, metrics, tracing) of Nexeres.
+  observability: ObservabilityConfig
+
+  /// Configuration for password policies.
+  password: PasswordConfig
+
+  /// Configuration for JWT tokens used by Nexeres.
+  jwt: JWTConfig
+
+  /// Configuration for notifications sent by Nexeres.
+  notifications: NotificationsConfig
+
+  /// Branding configuration for Nexeres.
+  branding: BrandingConfig
+
+  /// Configuration for security features in Nexeres.
+  security: SecurityConfig
+
+  /// Configuration for data and object stores used by Nexeres.
+  stores: StoresConfig
+}
+
+/// Configuration for an admin user.
+class AdminConfig {
+  /// Email addresses of the admin users.
+  emails: List<String>
+
+  /// Session timeout in seconds for the admin users.
+  sessionTimeoutSeconds: Int(isNonZero) = 900
+}
+
+/// Configuration for the public server facing aspects of Nexeres.
+class PublicConfig {
+  /// scheme for the public facing URL (http or https).
+  ///
+  /// Use "https" even if TLS termination is handled upstream (e.g., by a load balancer, reverse proxy).
+  scheme: String
+
+  /// Domain is the domain at which Nexeres UI is being hosted.
+  ///
+  /// Eg. if hosting Nexeres at auth.example.com, provide "example.com" here.
+  ///
+  /// This setting is used as the Domain for all Cookies (except Refresh Token Cookie, that is only set at "subdomain.domain")
+  domain: String
+
+  /// Subdomain at which Nexeres UI is being hosted.
+  ///
+  /// Eg. If hosting Nexeres at auth.example.com, provide "auth" here.
+  subdomain: String
+
+  /// Use this to override the base URL used in debug mode.
+  ///
+  /// Without this setting, the debug base URL is constructed from the scheme, subdomain, and domain settings.
+  debugBaseURL: String
+}
+
+class MultitenantConfig {
+  /// Enable multitenant mode.
+  enabled: Boolean
+}
+
+class ServerConfig {
+  /// Port on which Nexeres server listens.
+  port: Int(isBetween(1024, 65535))
+
+  /// Host address on which Nexeres server listens.
+  host: String
+
+  /// Unique identifier for the Nexeres server instance.
+  ///
+  /// Useful in k8s environments to distinguish between multiple instances of Nexeres.
+  instanceId: String
+
+  /// Enable TLS for the Nexeres server.
+  ///
+  /// If enabled, the following files must exist and be valid:
+  /// - TLS Certificate File at path "/etc/nbrglm/workspace/nexeres/tls/tls.crt" pem format.
+  /// - TLS Key File at path "/etc/nbrglm/workspace/nexeres/tls/tls.key" pem format.
+  /// - CA Certificate File at path "/etc/nbrglm/workspace/nexeres/tls/ca.crt" pem format. (Optional, only if using a custom CA)
+  enableTLS: Boolean
+}
+
+class ObservabilityConfig {
+  logs: LoggingConfig
+
+  metrics: ObsCommonConfig
+
+  tracing: ObsCommonConfig
+}
+
+open class ObsCommonConfig {
+  /// Endpoint is the endpoint for the OpenTelemetry logs exporter
+  /// If not set, logs will be printed to stdout only.
+  endpoint: Domain? = null
+
+  path: String? = null
+
+  /// Protocol to use for exporting logs.
+  protocol: ObservabilityProtocol = "stdout"
+
+  function validEndpoint(): Boolean =
+    if (protocol != "stdout") if (endpoint != null) true else false else true
+
+  function validPath(): Boolean =
+    if (protocol == "http/protobuf") if (path != null) true else false else true
+
+  function isValid(): Boolean = validPath() && validEndpoint()
+}
+
+class LoggingConfig extends ObsCommonConfig {
+  /// Logs at and above this level will be exported.
+  level: LogLevel = "warn"
+}
+
+class PasswordConfig {
+  algorithm: "bcrypt" | "argon2id"
+
+  bcrypt: BcryptConfig? = null
+
+  argon2id: Argon2idConfig? = null
+
+  function isValid(): Boolean =
+    if (algorithm == "bcrypt")
+      if (bcrypt != null) true else false
+    else if (algorithm == "argon2id")
+      if (argon2id != null) true else false
+    else
+      false
+}
+
+class BcryptConfig {
+  cost: Int(isBetween(10, 31)) = 10
+}
+
+class Argon2idConfig {
+  /// Memory in KB
+  memory: Int(isNonZero) = 16384
+
+  /// Number of iterations to perform, more iterations means more CPU usage
+  ///
+  /// Recommended value is 2 or more
+  iterations: Int(isNonZero) = 3
+
+  /// Number of parallelism threads to use
+  ///
+  /// Recommended value is 2 or more
+  parallelism: Int(isNonZero) = 2
+
+  /// Length of the salt in bytes, must be at least 16 bytes
+  saltLength: Int(isNonZero) = 16
+
+  /// Length of the generated hash in bytes, must be at least 32 bytes
+  keyLength: Int(isNonZero) = 32
+}
+
+/// Configuration for JWT tokens used by Nexeres.
+///
+/// Note: You must provide the following files for Nexeres to function properly:
+/// - RSA256 Private Key File at path "/etc/nbrglm/workspace/nexeres/jwt/private.key" in PEM format.
+/// - RSA256 Public Key File at path "/etc/nbrglm/workspace/nexeres/jwt/public.key" in PEM format.
+class JWTConfig {
+  sessionTokenExpirySeconds: Int(isNonZero) = 3600
+  refreshTokenExpirySeconds: Int(isNonZero) = 2592000
+
+  /// NOTE: Do not add the subdomain or domain you added in PublicConfig here.
+  ///
+  /// This is only for additional audiences.
+  audiences: List<String>(length > 0)
+}
+
+class NotificationsConfig {
+  emails: EmailConfig
+
+  sms: SMSConfig
+}
+
+class EmailConfig {
+  Provider: "smtp" | "sendgrid" | "ses"
+  smtp: SMTPConfig? = null
+  sendgrid: SendGridConfig? = null
+  ses: SESConfig? = null
+
+  endpoints: EmailEndpointsConfig
+
+  function isValid(): Boolean =
+    if (Provider == "smtp")
+      if (smtp != null) true else false
+    else if (Provider == "sendgrid")
+      if (sendgrid != null) true else false
+    else if (Provider == "ses")
+      if (ses != null) true else false
+    else
+      false
+}
+
+/// Configuration for URLs used in email notifications.
+class EmailEndpointsConfig {
+  /// URL for email verification link
+  /// A `token` parameter will be passed to this URL.
+  /// Pass a full url, eg. https://auth.example.com/verify-email
+  verification: String
+
+  /// URL for password reset link
+  /// A `token` parameter will be passed to this URL.
+  /// Pass a full url, eg. https://auth.example.com/reset-password
+  passwordReset: String
+}
+
+class SMTPConfig {
+  host: String
+  port: Int(isBetween(1, 65535))
+  fromAddress: EmailAddress
+  password: String
+}
+
+class SendGridConfig {
+  apiKey: String
+  fromAddress: EmailAddress
+  fromName: String
+}
+
+class SESConfig {
+  accessKeyId: String
+  secretAccessKey: String
+  region: String
+  fromAddress: EmailAddress
+  fromName: String
+}
+
+/// Configuration for SMS notifications.
+///
+/// Note: Currently, no SMSes are sent.
+/// This is a placeholder for future functionality.
+/// In future, twilio and aws sns providers may be supported.
+class SMSConfig {
+  provider: "twilio" | "sns"
+}
+
+class BrandingConfig {
+  appName: String = "Auth"
+  companyName: String
+  companyNameShort: String
+
+  /// URL To the company/app support page
+  ///
+  /// Note: The default URL provided is for NBRGLM's support page,
+  /// which will NOT be relevant for your users.
+  /// The URL opens a page where users are informed that they have reached
+  /// the support page for the Nexeres platform, and that they should contact support
+  /// of the App that redirected them here.
+  supportURL: String = "https://idu-support.nbrglm.com"
+}
+
+class SecurityConfig {
+  auditLogs: AuditLogsConfig
+
+  rateLimiting: RateLimitingConfig
+
+  apiKeys: List<APIKeyConfig>
+
+  cors: CORSConfig
+}
+
+class AuditLogsConfig {
+  enabled: Boolean = true
+}
+
+class RateLimitingConfig {
+  /// Maximum number of requests allowed in the given time window.
+  /// Default: 120/minute or 2/second
+  rate: String(matches(Regex(#"^[1-9]\d*-(s|m|h|d)$"#))) = "2-s"
+}
+
+class APIKeyConfig {
+  name: String
+  key: String
+  description: String
+}
+
+class CORSConfig {
+  /// List of allowed origins for CORS.
+  ///
+  /// Using "*" WILL NOT WORK.
+  /// You must specify the exact origins that are allowed to make cross-origin requests.
+  allowedOrigins: List<String>
+}
+
+class StoresConfig {
+  /// Data Source Name for the Postgres database used by Nexeres, in pgx format.
+  ///
+  /// For connection pooling arguments, take a look at <https://pkg.go.dev/github.com/jackc/pgx/v5@v5.7.5/pgxpool#ParseConfig>
+  postgresDSN: String
+
+  redis: RedisConfig
+
+  s3: S3Config
+}
+
+class RedisConfig {
+  /// Address of the Redis server.
+  ///
+  /// Example: "localhost:6379" or "redis-master:6379"
+  address: String
+
+  /// Password for the Redis server.
+  ///
+  /// If no password is set, leave this empty.
+  password: String = ""
+
+  /// Database index to use in Redis.
+  db: Int(isPositive) = 0
+}
+
+class S3Config {
+  /// S3 Endpoint URL.
+  ///
+  /// Example: "https://s3.amazonaws.com" or "https://minio.example.com"
+  endpoint: Domain
+
+  /// Access Key ID for the S3 bucket.
+  accessKeyId: String
+
+  /// Secret Access Key for the S3 bucket.
+  secretAccessKey: String
+
+  /// Region of the S3 bucket.
+  region: String
+
+  useSSL: Boolean = true
+}
+
+/// Type Alias for a Domain Regular Expression String
+typealias Domain =
+  String(matches(Regex(#"^(?=.{3,253}$)(?!-)([a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,63}$"#)))
+
+typealias LogLevel = "debug" | "info" | "warn" | "error" | "dpanic" | "panic" | "fatal"
+
+/// Type Alias for Observability Protocol
+///
+/// Note: Using 'stdout' protocol is only recommended for local development and debugging purposes. It does not send observability data to any external system.
+typealias ObservabilityProtocol = "http/protobuf" | "grpc" | "stdout"
+
+typealias EmailAddress =
+  String(matches(Regex(#"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"#)))
+
+nexeres: NexeresConfig

@@ -42,3 +42,23 @@ sql:
               import: "github.com/google/uuid"
               type: "UUID"
               pointer: true
+          - db_type: "timestamptz"
+            go_type:
+              import: "time"
+              type: "Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+          - column: "orgs.settings"
+            go_type:
+              import: "github.com/nbrglm/nexeres/internal/models"
+              type: "OrgSettings"
+          - column: "orgs.domain_verification_secret"
+            go_struct_tag: json:"-"
+          - column: "users.backup_codes"
+            go_type:
+              import: "github.com/nbrglm/nexeres/internal/models"
+              type: "BackupCodes"

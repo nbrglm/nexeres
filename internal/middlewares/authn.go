@@ -3,6 +3,7 @@ package middlewares
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -14,7 +15,7 @@ import (
 	"github.com/nbrglm/nexeres/config"
 	"github.com/nbrglm/nexeres/internal/cache"
 	"github.com/nbrglm/nexeres/internal/logging"
-	"github.com/nbrglm/nexeres/internal/models"
+	"github.com/nbrglm/nexeres/internal/reserr"
 	"github.com/nbrglm/nexeres/internal/tokens"
 	"go.uber.org/zap"
 )
@@ -22,7 +23,6 @@ import (
 const CtxAPIKeyGetter = "apiKey"
 const CtxSessionToken = "sessionToken"
 const CtxRefreshToken = "refreshToken"
-const CtxSessionClaims = "sessionClaims"
 const CtxSessionTokenClaims = "sessionTokenClaims"
 const CtxSessionRefreshTokenKey = "refreshToken"
 const CtxAdminToken = "adminToken"
@@ -30,74 +30,90 @@ const CtxAdminEmail = "adminEmail"
 
 type AuthMode string
 
-const AuthModeEither AuthMode = "either"
+const AuthModeEitherSessionOrRefresh AuthMode = "either"
 const AuthModeSession AuthMode = "session"
 const AuthModeRefresh AuthMode = "refresh"
-const AuthModeBoth AuthMode = "both"
-const AuthModeAdmin AuthMode = "admin"
+const AuthModeBothSessionAndRefresh AuthMode = "both"
+const AuthModeSysAdmin AuthMode = "sysAdmin"
+const AuthModeOrgAdmin AuthMode = "orgAdmin"
+const AuthModeAnyAdmin AuthMode = "anyAdmin"
 
+// RequireAuth is a middleware that checks for the presence of authentication tokens
+// based on the specified AuthMode.
 func RequireAuth(mode AuthMode) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		// Check if at least one of the tokens is present based on the mode
-		switch mode {
-		case AuthModeEither:
-			_, sExists := ctx.Get(CtxSessionToken)
-			_, rExists := ctx.Get(CtxRefreshToken)
-			if !sExists && !rExists {
-				logging.Logger.Debug("No session or refresh token provided")
-				ctx.AbortWithStatusJSON(http.StatusUnauthorized, models.NewErrorResponse("No session or refresh token provided", "Provide either a session token or a refresh token", http.StatusUnauthorized, nil).Filter())
-				return
-			}
-		case AuthModeSession:
-			_, sExists := ctx.Get(CtxSessionToken)
-			if !sExists {
-				logging.Logger.Debug("No session token provided")
-				ctx.AbortWithStatusJSON(http.StatusUnauthorized, models.NewErrorResponse("No session token provided", "Provide a session token!", http.StatusUnauthorized, nil).Filter())
-				return
-			}
-		case AuthModeRefresh:
-			_, rExists := ctx.Get(CtxRefreshToken)
-			if !rExists {
-				logging.Logger.Debug("No refresh token provided")
-				ctx.AbortWithStatusJSON(http.StatusUnauthorized, models.NewErrorResponse("No refresh token provided", "Provide a refresh token!", http.StatusUnauthorized, nil).Filter())
-				return
-			}
-		case AuthModeBoth:
-			_, sExists := ctx.Get(CtxSessionToken)
-			_, rExists := ctx.Get(CtxRefreshToken)
-			if !sExists || !rExists {
-				logging.Logger.Debug("No session or refresh token provided")
-				ctx.AbortWithStatusJSON(http.StatusUnauthorized, models.NewErrorResponse("No session or refresh token provided", "Provide both a session token and a refresh token!", http.StatusUnauthorized, nil).Filter())
-				return
-			}
-		case AuthModeAdmin:
-			_, aExists := ctx.Get(CtxAdminToken)
-			if !aExists {
-				logging.Logger.Debug("No admin token provided")
-				ctx.AbortWithStatusJSON(http.StatusUnauthorized, models.NewErrorResponse("No admin token provided", "Provide an admin token!", http.StatusUnauthorized, nil).Filter())
-				return
-			}
-		default:
-			logging.Logger.Error("Invalid auth mode provided to RequireAuth middleware", zap.String("mode", string(mode)))
-			ctx.AbortWithStatusJSON(http.StatusInternalServerError, models.NewErrorResponse("Internal server error", "An internal server error occurred", http.StatusInternalServerError, nil).Filter())
+		satisfied, errStr := internalSatisfiesAuthMode(ctx, mode)
+		if !satisfied {
+			logging.Logger.Debug("Authentication failed in RequireAuth middleware", zap.String("mode", string(mode)), zap.String("reason", errStr))
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, reserr.Unauthorized("Unauthorized access!", errStr).Filter())
 			return
 		}
 		ctx.Next()
 	}
 }
 
-func APIKeyMiddleware() gin.HandlerFunc {
+// internalSatisfiesAuthMode checks if the current request context satisfies the given AuthMode.
+//
+// Uses recursion to evaluate combined modes.
+func internalSatisfiesAuthMode(ctx *gin.Context, mode AuthMode) (bool, string) {
+	_, sessionExists := ctx.Get(CtxSessionToken)
+	_, refreshExists := ctx.Get(CtxRefreshToken)
+	_, adminExists := ctx.Get(CtxAdminToken)
+
+	switch mode {
+	case AuthModeSession:
+		return sessionExists, "Invalid or missing session token"
+	case AuthModeRefresh:
+		return refreshExists, "Invalid or missing refresh token"
+	case AuthModeSysAdmin:
+		return adminExists, "Invalid or missing admin token"
+	case AuthModeOrgAdmin:
+		if !sessionExists {
+			return false, "Invalid or missing session token"
+		}
+		if claims, exists := ctx.Get(CtxSessionTokenClaims); !exists {
+			return false, "Invalid or missing session token"
+		} else {
+			c, ok := claims.(*tokens.NexeresClaims)
+			if !ok {
+				return false, "Invalid session token"
+			}
+			return c.OrgAdmin, "User is not an organization admin"
+		}
+	case AuthModeEitherSessionOrRefresh:
+		if sessionExists || refreshExists {
+			return true, ""
+		}
+		return false, "Invalid or missing session or refresh tokens"
+	case AuthModeBothSessionAndRefresh:
+		if !sessionExists || !refreshExists {
+			return false, "Invalid or missing session and refresh tokens"
+		}
+		return true, ""
+	case AuthModeAnyAdmin:
+		sysAdminValid, _ := internalSatisfiesAuthMode(ctx, AuthModeSysAdmin)
+		orgAdminValid, _ := internalSatisfiesAuthMode(ctx, AuthModeOrgAdmin)
+		if sysAdminValid || orgAdminValid {
+			return true, ""
+		}
+		return false, "User is not an admin"
+	default:
+		return false, "Invalid request"
+	}
+}
+
+func PopulateAuthContext() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		apiKey := strings.TrimSpace(ctx.GetHeader(tokens.NEXERES_API_KeyHeaderName))
 
 		if apiKey == "" {
 			logging.Logger.Warn("Missing API key in request")
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, models.NewErrorResponse("Unauthorized access!", "Missing API key", http.StatusUnauthorized, nil).Filter())
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, reserr.Unauthorized("Unauthorized access!", "Missing API key").Filter())
 			return
 		}
 
 		// Validate the API Key
-		exists := slices.ContainsFunc(config.Security.APIKeys, func(key config.APIKeyConfig) bool {
+		exists := slices.ContainsFunc(config.C.Security.APIKeys, func(key config.APIKeyConfig) bool {
 			if apiKey == key.Key {
 				ctx.Set(CtxAPIKeyGetter, key)
 				return true
@@ -107,7 +123,7 @@ func APIKeyMiddleware() gin.HandlerFunc {
 
 		if !exists {
 			logging.Logger.Warn("Invalid API key provided")
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, models.NewErrorResponse("Unauthorized access!", "Invalid API key", http.StatusUnauthorized, nil).Filter())
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, reserr.Unauthorized("Unauthorized access!", "Invalid API key").Filter())
 			return
 		}
 
@@ -141,9 +157,13 @@ func APIKeyMiddleware() gin.HandlerFunc {
 			hash := tokens.HashAdminToken(adminToken)
 			sess, err := cache.GetAdminSession(ctx.Request.Context(), hash) // Just to check if it exists
 			if err != nil || sess == nil {
-				logging.Logger.Debug("Failed to validate admin token", zap.Error(err))
+				if errors.Is(err, cache.ErrKeyNotFound) {
+					logging.Logger.Debug("Admin token expired or not found in cache")
+				} else if err != nil {
+					logging.Logger.Debug("Failed to validate admin token", zap.Error(err))
+				}
 			} else {
-				ctx.Set(CtxAdminToken, hash) // Store the HASH of the admin token in the context
+				ctx.Set(CtxAdminToken, hash)
 				ctx.Set(CtxAdminEmail, sess.Email)
 			}
 		}
@@ -167,8 +187,10 @@ func ValidateSessionToken(ctx context.Context, token string) (claims *tokens.Nex
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Method.Alg())
 		}
 	}, jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithLeeway(time.Minute*5))
-	if v, ok := parsedToken.Claims.(*tokens.NexeresClaims); ok && parsedToken.Valid {
-		return v, nil
+	if parsedToken != nil {
+		if v, ok := parsedToken.Claims.(*tokens.NexeresClaims); ok && parsedToken.Valid {
+			return v, nil
+		}
 	}
 	return nil, fmt.Errorf("invalid session token: %w", err)
 }

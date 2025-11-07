@@ -1,4 +1,5 @@
 import { NexeresAdminResponse, NexeresClient, NexeresResponse } from "./client.js";
+import { NewNexeresOrg, NewNexeresOrgDomain, NewNexeresOrgRole, NexeresOrg, NexeresOrgDomain, NexeresOrgRole, NexeresOrgSettings } from "./models/index.js";
 
 export class AdminAPI {
   constructor(private client: NexeresClient) {
@@ -15,6 +16,40 @@ export class AdminAPI {
 
   getConfig(adminToken: string): NexeresAdminResponse<NexeresAdminViewableConfig> {
     return this.client.adminGet<NexeresAdminViewableConfig>("/api/admin/config", adminToken);
+  }
+
+  async getOrgs(adminToken: string, params: GetOrgsParams): NexeresAdminResponse<NexeresOrganizationsResponse> {
+    let result = await this.client.adminPost<NexeresOrganizationsResponse>("/api/admin/orgs", adminToken, params);
+    if (result.result) {
+      result.result.orgs = result.result.orgs.map(o => NewNexeresOrg(o));
+    }
+    return result;
+  }
+
+  createOrg(adminToken: string, params: CreateOrgParams): NexeresAdminResponse<CreateOrgResponse> {
+    return this.client.adminPut<CreateOrgResponse>("/api/admin/orgs", adminToken, params);
+  }
+
+  async getOrgDetails(adminToken: string, params: GetOrgDetailsParams): NexeresAdminResponse<GetOrgDetailsResponse> {
+    let result = await this.client.adminGet<GetOrgDetailsResponse>(`/api/admin/orgs/${params.orgId}`, adminToken);
+    if (result.result) {
+      if (result.result.org) {
+        result.result.org = NewNexeresOrg(result.result.org);
+      }
+
+      if (result.result.roles) {
+        result.result.roles = result.result.roles.map(role => NewNexeresOrgRole(role));
+      }
+
+      if (result.result.domains) {
+        result.result.domains = result.result.domains.map(domain => NewNexeresOrgDomain(domain));
+      }
+    }
+    return result;
+  }
+
+  isErrorAdminTokenExpired(err: any, code: number): boolean {
+    return code === 401 && err && err.message && typeof err.message === "string" && err.message.toLowerCase().includes("admin token expired");
   }
 }
 
@@ -188,4 +223,109 @@ export interface APIKeyAdminConfig {
 
   /** The description of the API Key */
   description: string;
+}
+
+export function isValidOrgField(field: string): field is "name" | "slug" | "created_at" {
+  return ["name", "slug", "created_at"].includes(field);
+}
+
+export function isValidOrgFilterOp(op: string): op is "contains" | "equals" | "lte" | "gte" | "lt" | "gt" {
+  return ["contains", "equals", "lte", "gte", "lt", "gt"].includes(op);
+}
+
+export function isValidOrgSortDir(dir: string): dir is "ASC" | "DESC" {
+  return ["ASC", "DESC"].includes(dir);
+}
+
+export function isValidOrgSortField(field: string): field is "name" | "slug" | "created_at" {
+  return ["name", "slug", "created_at"].includes(field);
+}
+
+/** Parameters for getting organizations */
+export interface GetOrgsParams {
+  /**
+   * Filters for querying organizations
+   */
+  filters?: {
+    /**
+     * The filter options
+     */
+    options: {
+      field: "name" | "slug" | "created_at";
+      op: "contains" | "equals" | "lte" | "gte" | "lt" | "gt";
+      value: string;
+    }[];
+    /**
+     * The logical operator to use for combining filters
+     */
+    mode: "AND" | "OR";
+  }
+  /**
+   * Pagination settings
+   */
+  pagination?: {
+    page: number;
+    pageSize: number;
+  }
+  sort?: {
+    field: "name" | "slug" | "created_at";
+    direction: "ASC" | "DESC";
+  }[]
+};
+
+/** Response for the organizations list */
+export interface NexeresOrganizationsResponse {
+  /** The list of organizations */
+  orgs: NexeresOrg[];
+
+  /** The total number of organizations */
+  total: number;
+
+  /**
+   * Pagination settings
+   */
+  pagination: {
+    page: number;
+    pageSize: number;
+  }
+}
+
+/** Parameters for creating a new organization */
+export interface CreateOrgParams {
+  /** The name of the organization */
+  name: string;
+
+  /** The slug for the organization, used in URLs */
+  slug: string;
+
+  /** The description of the organization */
+  description?: string;
+
+  /** The avatar URL for the organization */
+  avatarURL?: string;
+
+  settings: NexeresOrgSettings;
+}
+
+/** Response for creating a new organization */
+export interface CreateOrgResponse {
+  orgId: string;
+}
+
+/** Get Org Details Params */
+export interface GetOrgDetailsParams {
+  /** The ID of the organization to retrieve details for */
+  orgId: string;
+}
+
+/** Get Org Details Response */
+export interface GetOrgDetailsResponse {
+  /** The organization details */
+  org: NexeresOrg;
+
+  /** The roles associated with the organization */
+  roles: NexeresOrgRole[];
+
+  /** The domains associated with the organization */
+  domains: NexeresOrgDomain[];
 }

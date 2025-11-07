@@ -11,10 +11,13 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/nbrglm/nexeres/config"
 	"github.com/nbrglm/nexeres/db"
-	"github.com/nbrglm/nexeres/internal"
 	"github.com/nbrglm/nexeres/internal/metrics"
+	"github.com/nbrglm/nexeres/internal/mfa"
 	"github.com/nbrglm/nexeres/internal/models"
+	"github.com/nbrglm/nexeres/internal/obs"
 	"github.com/nbrglm/nexeres/internal/password"
+	"github.com/nbrglm/nexeres/internal/reserr"
+	"github.com/nbrglm/nexeres/internal/resp"
 	"github.com/nbrglm/nexeres/internal/store"
 	"github.com/nbrglm/nexeres/utils"
 	"github.com/prometheus/client_golang/prometheus"
@@ -30,60 +33,66 @@ func NewSignupHandler() *SignupHandler {
 			prometheus.CounterOpts{
 				Namespace: "nexeres",
 				Subsystem: "auth",
-				Name:      "user_signup_requests",
-				Help:      "Total number of user signup requests",
-			},
-			[]string{"status"},
+				Name:      "signup",
+				Help:      "Total number of Signup requests",
+			}, []string{"status"},
 		),
 	}
 }
 
-func (h *SignupHandler) Register(engine *gin.Engine) {
-	metrics.Collectors = append(metrics.Collectors, h.SignupCounter)
-	engine.POST("/api/auth/signup", h.HandleSignup)
+func (h *SignupHandler) Register(router *gin.Engine) {
+	metrics.RegisterCollector(h.SignupCounter)
+	router.POST("/api/auth/signup", h.Handle)
 }
 
-type UserSignupData struct {
+type SignupRequest struct {
 	Email           string `json:"email" binding:"required,email"`
 	Password        string `json:"password" binding:"required,min=8,max=32"`
 	ConfirmPassword string `json:"confirmPassword" binding:"required,eqfield=Password"`
-	FirstName       string `json:"firstName" binding:"required"`
-	LastName        string `json:"lastName" binding:"required"`
-	InviteToken     string `json:"inviteToken,omitempty"` // Optional invite token for signup
+	Name            string `json:"name" binding:"required,min=2"`
+	InviteToken     string `json:"inviteToken,omitempty"` // Optional invite token for multitenant signup
 }
 
-type UserSignupResult struct {
-	UserID  string `json:"userId"`
-	Message string `json:"message"`
+type SignupResponse struct {
+	resp.BaseResponse
+	UserID      string             `json:"userId"`
+	BackupCodes models.BackupCodes `json:"backupCodes,omitempty"`
 }
 
-// HandleSignup godoc
-// @Summary User Signup
-// @Description Handles user registration requests.
-// @Tags Auth
+// @Summary Signup Endpoint
+// @Description Handles Signup requests
+// @Tags auth
 // @Accept json
 // @Produce json
-// @Param data body UserSignupData true "User Signup Data"
-// @Success 200 {object} UserSignupResult "User Signup Result"
-// @Failure 400 {object} models.ErrorResponse "Bad Request"
-// @Failure 401 {object} models.ErrorResponse "Unauthorized - Invalid Invite Token or Missing Invite Token or Domain Not Allowed"
-// @Failure 500 {object} models.ErrorResponse "Internal Server Error"
+// @Param request body SignupRequest true "Request body"
+// @Success 200 {object} SignupResponse
+// @Failure 400 {object} reserr.ErrorResponse
+// @Failure 401 {object} reserr.ErrorResponse
+// @Failure 500 {object} reserr.ErrorResponse
 // @Router /api/auth/signup [post]
-func (h *SignupHandler) HandleSignup(c *gin.Context) {
-	h.SignupCounter.WithLabelValues("received").Inc()
+func (h *SignupHandler) Handle(c *gin.Context) {
+	h.SignupCounter.WithLabelValues("total").Inc()
 
-	ctx, log, span := internal.WithContext(c.Request.Context(), "signup")
-	defer span.End() // Ensure the span is ended to avoid memory leaks
+	ctx, log, span := obs.WithContext(c.Request.Context(), "SignupHandler.Handle")
+	defer span.End() // Ensure the span is ended when the function returns to prevent memory leaks
 
-	var signupData UserSignupData
-	if err := c.ShouldBindJSON(&signupData); err != nil {
-		utils.ProcessError(c, models.NewErrorResponse("Invalid request data", "Please check your input and try again.", http.StatusBadRequest, nil), span, log, h.SignupCounter, "signup")
+	var req SignupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		reserr.ProcessError(c, reserr.BadRequest(), span, log, h.SignupCounter, "SignupHandler.Handle")
 		return
 	}
 
-	domain, err := utils.GetDomainFromEmail(signupData.Email)
+	tx, err := store.PgPool.Begin(ctx)
 	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse("Invalid request! Please input a valid email and try again.", "Invalid email domain!", http.StatusBadRequest, nil), span, log, h.SignupCounter, "signup")
+		reserr.ProcessError(c, reserr.InternalServerError(err, "Failed to begin transaction"), span, log, h.SignupCounter, "SignupHandler.Handle")
+		return
+	}
+	defer tx.Rollback(ctx)
+	q := store.Querier.WithTx(tx)
+
+	domain, err := utils.GetDomainFromEmail(req.Email)
+	if err != nil {
+		reserr.ProcessError(c, reserr.BadRequest(), span, log, h.SignupCounter, "SignupHandler.Handle")
 		return
 	}
 
@@ -93,120 +102,178 @@ func (h *SignupHandler) HandleSignup(c *gin.Context) {
 	// Otherwise if multitenancy is not enabled, we will fetch the default organization.
 
 	var org *db.Org
-	role := "member" // Default role for new users
+	var roleId *uuid.UUID
+	var isOrgAdmin *bool = new(bool)
+	*isOrgAdmin = false
 
-	if config.Multitenancy {
-		if strings.TrimSpace(signupData.InviteToken) == "" {
+	if err := tx.Commit(ctx); err != nil {
+		reserr.ProcessError(c, reserr.InternalServerError(err, "Failed to commit transaction"), span, log, h.SignupCounter, "SignupHandler.Handle")
+		return
+	}
+
+	if config.C.Multitenancy {
+		if strings.TrimSpace(req.InviteToken) == "" {
 			// Check if the domain matches any verified, auto-join enabled domains for any organization
-			organization, err := store.Querier.GetOrgForDomainIfAutoJoin(ctx, domain)
+			orgDomainVerified := true
+			orgAutoJoin := true
+			organization, err := q.GetOrgByDomain(ctx, db.GetOrgByDomainParams{
+				Domain:   domain,
+				Verified: &orgDomainVerified,
+				AutoJoin: &orgAutoJoin,
+			})
 			if errors.Is(err, pgx.ErrNoRows) {
-				utils.ProcessError(c, models.NewErrorResponse("Email is not associated to any Organizations! Please contact your administrator.", "No organization found for domain that has auto-join enabled! If you have not verified the domain yet, please do so.", http.StatusUnauthorized, nil), span, log, h.SignupCounter, "signup")
+				utils.ProcessError(c, reserr.Unauthorized("Email is not associated to any Organizations! Please contact your administrator.", "No organization found for domain that has auto-join enabled! If you have not verified the domain yet, please do so."), span, log, h.SignupCounter, "SignupHandler.Handle")
 				return
 			}
 
 			if err != nil {
-				utils.ProcessError(c, models.NewErrorResponse("An error occurred while processing your request. Please try again later.", "Failed to get organization for domain!", http.StatusInternalServerError, err), span, log, h.SignupCounter, "signup")
+				utils.ProcessError(c, reserr.InternalServerError(err, "Failed to get organization for domain!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 				return
 			}
 			// we do not change role here, as we are not using an invite token,
 			// so the user will be a member by default.
-			org = &organization
+			org = &organization.Org
+			roleId = organization.AutoJoinRoleID
 		} else {
-			invitation, err := store.Querier.GetInvitationByToken(ctx, signupData.InviteToken)
+			invitation, err := q.GetInvitation(ctx, db.GetInvitationParams{
+				TokenHash: &req.InviteToken,
+				Statuses:  []db.InvitationStatus{db.InvitationStatusPending},
+			})
 			if errors.Is(err, pgx.ErrNoRows) {
-				utils.ProcessError(c, models.NewErrorResponse("Invalid invite token! Please check your token and try again.", "No invitation found for the provided token!", http.StatusUnauthorized, nil), span, log, h.SignupCounter, "signup")
+				utils.ProcessError(c, reserr.Unauthorized("Invalid invite token! Please check your token and try again.", "No invitation found for the provided token!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 				return
 			}
 			if err != nil {
-				utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to get invitation by token!", http.StatusInternalServerError, err), span, log, h.SignupCounter, "signup")
+				utils.ProcessError(c, reserr.InternalServerError(err, "Failed to get invitation by token!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 				return
 			}
-			if invitation.Email != signupData.Email {
-				utils.ProcessError(c, models.NewErrorResponse("Invalid invite token! Please check your token and try again.", "The invite token does not match the provided email!", http.StatusUnauthorized, nil), span, log, h.SignupCounter, "signup")
+			if invitation.Email != req.Email {
+				utils.ProcessError(c, reserr.Unauthorized("Invalid invite token! Please check your token and try again.", "The invite token does not match the provided email!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 				return
 			}
 
 			// The invite is valid, let's get the organization and role from the invitation
-			organization, err := store.Querier.GetOrgByID(ctx, invitation.OrgID)
+			organization, err := q.GetOrg(ctx, db.GetOrgParams{
+				ID: &invitation.OrgID,
+			})
 			if errors.Is(err, pgx.ErrNoRows) {
-				utils.ProcessError(c, models.NewErrorResponse("Invalid invite token! Please check your token and try again.", "No organization found for the provided invitation!", http.StatusUnauthorized, nil), span, log, h.SignupCounter, "signup")
+				utils.ProcessError(c, reserr.Unauthorized("Invalid invite token! Please check your token and try again.", "No organization found for the provided invitation!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 				return
 			}
 			if err != nil {
-				utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to get organization by ID for given invite token!", http.StatusInternalServerError, err), span, log, h.SignupCounter, "signup")
+				utils.ProcessError(c, reserr.InternalServerError(err, "Failed to get organization by ID for given invite token!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 				return
 			}
-			role = invitation.Role // Use the role from the invitation
+			roleId = invitation.RoleID // Use the role from the invitation
+			*isOrgAdmin = invitation.InviteAsAdmin
 			org = &organization
 		}
 	} else {
-		organization, err := store.Querier.GetOrgBySlug(ctx, "default")
+		slug := "default"
+		organization, err := q.GetOrg(ctx, db.GetOrgParams{
+			Slug: &slug,
+		})
 		if err != nil {
 			// we return the underlying error here because default org is ALWAYS supposed to be found
-			utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to get default organization!", http.StatusInternalServerError, err), span, log, h.SignupCounter, "signup")
+			utils.ProcessError(c, reserr.InternalServerError(err, "Failed to get default organization!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 			return
 		}
 		org = &organization
 	}
 
-	id, err := uuid.NewV7()
+	userId, err := uuid.NewV7()
 	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to generate user ID!", http.StatusInternalServerError, err), span, log, h.SignupCounter, "signup")
+		utils.ProcessError(c, reserr.InternalServerError(err, "Failed to generate user ID!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 		return
 	}
 
-	passwordHash, err := password.HashPassword(signupData.Password)
+	passwordHash, err := password.HashPassword(req.Password)
 	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to hash password!", http.StatusInternalServerError, err), span, log, h.SignupCounter, "signup")
+		utils.ProcessError(c, reserr.InternalServerError(err, "Failed to hash password!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 		return
 	}
-
-	tx, err := store.PgPool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to begin transaction!", http.StatusInternalServerError, err), span, log, h.SignupCounter, "signup")
-		return
-	}
-	defer tx.Rollback(ctx) // Ensure the transaction is rolled back if not committed
-
-	q := store.Querier.WithTx(tx)
 
 	// Create the user
-	user, err := q.CreateUser(ctx, db.CreateUserParams{
-		ID:           id,
-		Email:        signupData.Email,
+	err = q.CreateUser(ctx, db.CreateUserParams{
+		ID:           userId,
+		Email:        req.Email,
+		Name:         req.Name,
 		PasswordHash: &passwordHash,
-		FirstName:    &signupData.FirstName,
-		LastName:     &signupData.LastName,
 	})
 	if err != nil {
 		if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "23505" {
-			utils.ProcessError(c, models.NewErrorResponse("Email is already registered! Please login or use a different email.", "User with this email already exists!", http.StatusBadRequest, nil), span, log, h.SignupCounter, "signup")
+			utils.ProcessError(c, reserr.BadRequest("Email is already registered! Please login or use a different email.", "User with this email already exists!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 			return
 		}
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to create user!", http.StatusInternalServerError, err), span, log, h.SignupCounter, "signup")
+		utils.ProcessError(c, reserr.InternalServerError(err, "Failed to create user!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 		return
 	}
 
 	// Create the user organization membership
-	if err := q.LinkUserToOrg(ctx, db.LinkUserToOrgParams{
-		UserID: user.ID,
-		OrgID:  org.ID,
-		Role:   role,
+	if err := q.AddUserToOrg(ctx, db.AddUserToOrgParams{
+		UserID:     userId,
+		OrgID:      org.ID,
+		RoleID:     roleId,
+		IsOrgAdmin: isOrgAdmin,
 	}); err != nil {
-		utils.ProcessError(c, models.NewErrorResponse(models.GenericErrorMessage, "Failed to link user to organization!", http.StatusInternalServerError, err), span, log, h.SignupCounter, "signup")
+		utils.ProcessError(c, reserr.InternalServerError(err, "Failed to link user to organization!"), span, log, h.SignupCounter, "SignupHandler.Handle")
 		return
 	}
 
-	// Commit the transaction, user creating is successful!
-	if err := tx.Commit(ctx); err != nil {
-		utils.ProcessError(c, models.NewErrorResponse("An error occurred while processing your request. Please try again later.", "Failed to commit transaction!", http.StatusInternalServerError, err), span, log, h.SignupCounter, "signup")
-		return
+	var backupCodes models.BackupCodes = make(models.BackupCodes, 0)
+
+	// MFA Check
+	if org.Settings.MFA.Required {
+		// Generate 8 backup codes
+		backupCodes, err = mfa.GenerateBackupCodes(8)
+		if err != nil {
+			utils.ProcessError(c, reserr.InternalServerError(err, "Failed to generate MFA backup codes!"), span, log, h.SignupCounter, "SignupHandler.Handle")
+			return
+		}
+
+		// Enable MFA for the user
+		if err := q.UpdateMFA(ctx, db.UpdateMFAParams{
+			MfaEnabled:  true,
+			BackupCodes: backupCodes,
+			ID:          &userId,
+		}); err != nil {
+			utils.ProcessError(c, reserr.InternalServerError(err, "Failed to enable MFA for user!"), span, log, h.SignupCounter, "SignupHandler.Handle")
+			return
+		}
+
+		mfaFactorId, err := uuid.NewV7()
+		if err != nil {
+			utils.ProcessError(c, reserr.InternalServerError(err, "Failed to generate MFA factor ID!"), span, log, h.SignupCounter, "SignupHandler.Handle")
+			return
+		}
+
+		// Add the email factor
+		if err := q.AddMFAFactor(ctx, db.AddMFAFactorParams{
+			ID:         mfaFactorId,
+			UserID:     userId,
+			FactorType: db.MfaTypeEmail,
+			Name:       "Registered Email",
+			Secret:     req.Email,
+			// No verified specified as we need to verify the email factor
+			// when the user completes their email verification.
+		}); err != nil {
+			utils.ProcessError(c, reserr.InternalServerError(err, "Failed to add email factor for user!"), span, log, h.SignupCounter, "SignupHandler.Handle")
+			return
+		}
 	}
 
-	// Implementation of the signup logic goes here.
-	// This is a placeholder to illustrate where the actual signup handling code would be placed.
-	c.JSON(http.StatusOK, &UserSignupResult{
-		UserID:  user.ID.String(),
-		Message: "Signup successful!",
+	msg := "Signup successful!"
+	if org.Settings.MFA.Required {
+		msg += " Multi-factor authentication (MFA) is required for your account and has been enabled. Please verify your email before logging in — this will add your email as a backup factor. Also, save your backup codes securely in case you lose access to your email."
+	}
+
+	h.SignupCounter.WithLabelValues("success").Inc()
+	c.JSON(http.StatusOK, &SignupResponse{
+		BaseResponse: resp.BaseResponse{
+			Success: true,
+			Message: msg,
+		},
+		BackupCodes: backupCodes,
+		UserID:      userId.String(),
 	})
 }
