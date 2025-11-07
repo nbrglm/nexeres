@@ -119,6 +119,8 @@ open class ObsCommonConfig {
   /// Protocol to use for exporting logs.
   protocol: ObservabilityProtocol = "stdout"
 
+  headers: Map<String, String>? = null
+
   function validEndpoint(): Boolean =
     if (protocol != "stdout") if (endpoint != null) true else false else true
 
@@ -196,7 +198,7 @@ class NotificationsConfig {
 }
 
 class EmailConfig {
-  Provider: "smtp" | "sendgrid" | "ses"
+  provider: "smtp" | "sendgrid" | "ses"
   smtp: SMTPConfig? = null
   sendgrid: SendGridConfig? = null
   ses: SESConfig? = null
@@ -204,11 +206,11 @@ class EmailConfig {
   endpoints: EmailEndpointsConfig
 
   function isValid(): Boolean =
-    if (Provider == "smtp")
+    if (provider == "smtp")
       if (smtp != null) true else false
-    else if (Provider == "sendgrid")
+    else if (provider == "sendgrid")
       if (sendgrid != null) true else false
-    else if (Provider == "ses")
+    else if (provider == "ses")
       if (ses != null) true else false
     else
       false
@@ -294,15 +296,30 @@ class RateLimitingConfig {
 
 class APIKeyConfig {
   name: String
+
+  /// The key itself. No restriction on the length, but keep it sensible please.
+  /// Recommended format: nexeres_[environment:oneof=live,test,dev,staging]_[random alphanumeric string]
   key: String
   description: String
 }
 
 class CORSConfig {
-  /// List of allowed origins for CORS.
+  /// Allowed origins for CORS requests.
+  /// Note: Using "*" WILL NOT work.
   ///
-  /// Using "*" WILL NOT WORK.
-  /// You must specify the exact origins that are allowed to make cross-origin requests.
+  /// The following origins are allowed by default:
+  ///
+  /// In debug mode, you can set the public.debugBaseURL to allow any url.
+  ///
+  /// In production mode, this is allowed:
+  /// - https://{public.domain}
+  /// - https://{public.subdomain}.{public.domain}
+  ///
+  /// Any other domains, even other subdomains of {public.domain} will not be allowed by default.
+  /// Allowing a domain WOULD NOT allow all its subdomains.
+  /// You need to explicitly allow subdomains by specifying them here.
+  /// The following formats work:
+  /// allowedOrigins = List("https://*.example.com", "https://xyz.example.com", "https://example.com")
   allowedOrigins: List<String>
 }
 
@@ -336,7 +353,10 @@ class S3Config {
   /// S3 Endpoint URL.
   ///
   /// Example: "https://s3.amazonaws.com" or "https://minio.example.com"
-  endpoint: Domain
+  ///
+  /// We do not enforce a strict domain only here as you may need to use a local endpoint
+  /// during development or testing.
+  endpoint: String
 
   /// Access Key ID for the S3 bucket.
   accessKeyId: String

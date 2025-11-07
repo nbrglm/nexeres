@@ -5,4 +5,6 @@ nexeres {
   multitenant {
     enabled = true
   }
+  // ... similarly, other properties can be specified.
+  // Refer PKL syntax at <https://pkl-lang.org/main/current/language-reference/index.html>
 }
