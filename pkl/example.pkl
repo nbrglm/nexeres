@@ -1,1 +1,8 @@
-import "base.pkl"
+amends "https://raw.githubusercontent.com/nbrglm/nexeres/refs/heads/main/pkl/base.pkl"
+
+nexeres {
+  debug = false
+  multitenant {
+    enabled = true
+  }
+}
