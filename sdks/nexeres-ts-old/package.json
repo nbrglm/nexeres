@@ -1,0 +1,39 @@
+{
+  "name": "@nbrglm/nexeres-ts",
+  "version": "0.0.1",
+  "description": "Official Typescript Node.js SDK for Nexeres (by NBRGLM Developers).",
+  "homepage": "https://github.com/nbrglm/nexeres#readme",
+  "bugs": {
+    "url": "https://github.com/nbrglm/nexeres/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nbrglm/nexeres.git"
+  },
+  "license": "Apache-2.0",
+  "author": "NBRGLM Developers <support@nbrglm.com>",
+  "type": "module",
+  "main": "dist/api.js",
+  "types": "dist/api.d.ts",
+  "keywords": [
+    "auth",
+    "authentication",
+    "nexeres",
+    "sdk",
+    "node",
+    "security",
+    "nbrglm",
+    "open-source"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@microsoft/kiota-bundle": "^1.0.0-preview.99"
+  }
+}

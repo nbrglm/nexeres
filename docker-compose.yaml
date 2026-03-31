@@ -49,6 +49,49 @@ services:
       - ./data/nexeres-redis-data:/data
     command: redis-server --requirepass nexeres-redis-password --appendonly yes
 
+  nexeres-seaweedfs-master:
+    image: chrislusf/seaweedfs:latest
+    container_name: nexeres-seaweedfs-master
+    hostname: nexeres-seaweedfs-master
+    command: master
+    ports:
+      - 9333:9333
+  
+  nexeres-seaweedfs-filer:
+    image: chrislusf/seaweedfs:latest
+    container_name: nexeres-seaweedfs-filer
+    hostname: nexeres-seaweedfs-filer
+    command: filer -master=nexeres-seaweedfs-master:9333 -s3
+    ports:
+      - "8333:8333"
+      - "8888:8888"
+    depends_on:
+      - nexeres-seaweedfs-master
+  
+  nexeres-seaweedfs-volume1:
+    image: chrislusf/seaweedfs:latest
+    container_name: nexeres-seaweedfs-volume1
+    hostname: nexeres-seaweedfs-volume1
+    command: volume -max=5 -dir=/data -master=nexeres-seaweedfs-master:9333 -port=8989
+    volumes:
+      - ./data/nexeres-seaweedfs-volume1-data:/data
+    depends_on:
+      - nexeres-seaweedfs-master
+    ports:
+      - "8989:8989"
+  
+  nexeres-seaweedfs-volume2:
+    image: chrislusf/seaweedfs:latest
+    container_name: nexeres-seaweedfs-volume2
+    hostname: nexeres-seaweedfs-volume2
+    command: volume -max=5 -dir=/data -master=nexeres-seaweedfs-master:9333 -port=8990
+    volumes:
+      - ./data/nexeres-seaweedfs-volume2-data:/data
+    depends_on:
+      - nexeres-seaweedfs-master
+    ports:
+      - "8990:8990"
+
   nexeres-minio:
     image: quay.io/minio/minio:latest
     container_name: nexeres-minio
@@ -63,3 +106,14 @@ services:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: minio-admin
       MINIO_REGION_NAME: ind-south-c1
+  
+  nexeres-alloy:
+    image: grafana/alloy:latest
+    container_name: nexeres-alloy
+    hostname: nexeres-alloy
+    ports:
+      - 12345:12345
+      - 4318:4318
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./data/config.alloy:/etc/alloy/config.alloy

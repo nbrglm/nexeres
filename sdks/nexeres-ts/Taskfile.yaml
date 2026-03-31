@@ -1,0 +1,7 @@
+version: "3"
+
+tasks:
+  build:
+    cmds:
+      - npm run build
+    desc: Build the TypeScript project to JavaScript SDK

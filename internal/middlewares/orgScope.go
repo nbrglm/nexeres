@@ -3,8 +3,8 @@ package middlewares
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-	"github.com/nbrglm/nexeres/internal/reserr"
+	"github.com/go-chi/chi/v5"
+	"github.com/nbrglm/nexeres/internal/api/contracts"
 	"github.com/nbrglm/nexeres/internal/tokens"
 )
 
@@ -14,39 +14,39 @@ import (
 //
 // This middleware MUST BE ATTACHED AFTER PopulateAuthContext to ensure that
 // authentication information is available in the context.
-func RequireOrgScope() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		orgId := c.Param("orgId")
+func RequireOrgScope(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		orgId := chi.URLParam(r, "orgId")
 		if orgId == "" {
 			// No orgId parameter present; skip org scope check
-			c.Next()
+			next.ServeHTTP(w, r)
 			return
 		}
 
-		claimsObj, sessionExists := c.Get(CtxSessionTokenClaims)
-		_, sysAdminExists := c.Get(CtxAdminEmail)
-		if !sessionExists && !sysAdminExists {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, reserr.Unauthorized("Unauthorized: missing session token or admin token", "Please add either a session token or an admin token!").Filter())
+		claimsObj := r.Context().Value(CtxSessionTokenClaims)
+		_, sysAdminExists := r.Context().Value(CtxAdminEmail).(string)
+		if claimsObj == nil && !sysAdminExists {
+			contracts.Unauthorized("Unauthorized: missing session token or admin token", "Please add either a session token or an admin token!").Write(w)
 			return
 		}
 
 		if sysAdminExists {
 			// Sysadmins have access to all orgs
-			c.Next()
+			next.ServeHTTP(w, r)
 			return
 		}
 
 		if claims, ok := claimsObj.(*tokens.NexeresClaims); ok {
 			if claims.OrgId.String() != orgId {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, reserr.Unauthorized("Unauthorized", "The session token does not have access to the requested organization").Filter())
+				contracts.Unauthorized("Unauthorized", "The session token does not have access to the requested organization").Write(w)
 				return
 			}
 		} else {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, reserr.Unauthorized("Unauthorized: invalid session token", "Please provide a valid session token!").Filter())
+			contracts.Unauthorized("Unauthorized: invalid session token", "Please provide a valid session token!").Write(w)
 			return
 		}
 
 		// Org ID in session token matches the requested org ID
-		c.Next()
-	}
+		next.ServeHTTP(w, r)
+	})
 }

@@ -30,7 +30,6 @@ go.work.sum
 
 # Config Files 
 nexeres.yaml
-nexeres.pkl
 
 # Logs and Configuration files
 run

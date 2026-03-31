@@ -1,32 +1,727 @@
-// Package config handles the configuration for the Nexeres authentication server.
-//
-// Note: The Config structs have two tags for json and yaml.
-// JSON tags: Used to mark what data is visible to admins via the config json endpoint.
-// YAML tags: Used to actually configure this auth server.
 package config
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/knadh/koanf/providers/structs"
-	"github.com/knadh/koanf/v2"
+	"github.com/goccy/go-yaml"
 	"github.com/nbrglm/nexeres/opts"
+	"github.com/nbrglm/nexeres/utils"
 )
 
-// Type aliases for enums
+// NexeresConfig represents the configuration structure for the Nexeres application.
+//
+// All the sub-configurations are nested within this main configuration struct.
+// Each configuration has it's own fields and validation rules.
+type NexeresConfig struct {
+	Debug          bool                 `yaml:"debug"`
+	Admins         AdminsConfig         `yaml:"admins"`
+	PublicEndpoint PublicEndpointConfig `yaml:"publicEndpoint"`
+	Multitenancy   MultitenancyConfig   `yaml:"multitenancy"`
+	Server         ServerConfig         `yaml:"server"`
+	Observability  ObservabilityConfig  `yaml:"observability"`
+	Password       PasswordConfig       `yaml:"password"`
+	JWT            JWTConfig            `yaml:"jwt"`
+	Notifications  NotificationsConfig  `yaml:"notifications"`
+	Branding       BrandingConfig       `yaml:"branding"`
+	Security       SecurityConfig       `yaml:"security"`
+	Stores         StoresConfig         `yaml:"stores"`
+}
+
+func (c *NexeresConfig) Validate() error {
+	if err := c.Admins.Validate(); err != nil {
+		return err
+	}
+	if err := c.PublicEndpoint.Validate(); err != nil {
+		return err
+	}
+	if err := c.Server.Validate(); err != nil {
+		return err
+	}
+	if err := c.Observability.Validate(); err != nil {
+		return err
+	}
+	if err := c.Password.Validate(); err != nil {
+		return err
+	}
+	if err := c.JWT.Validate(); err != nil {
+		return err
+	}
+	if err := c.Notifications.Validate(); err != nil {
+		return err
+	}
+	if err := c.Branding.Validate(); err != nil {
+		return err
+	}
+	if err := c.Security.Validate(); err != nil {
+		return err
+	}
+	if err := c.Stores.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Currently doesn't require Validation
+type MultitenancyConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+type AdminsConfig struct {
+	Emails                []string `yaml:"emails"`
+	SessionTimeoutSeconds int      `yaml:"sessionTimeoutSeconds"`
+}
+
+func (c *AdminsConfig) Validate() error {
+	if c.SessionTimeoutSeconds < 300 {
+		return errors.New("AdminsConfig.SessionTimeoutSeconds should atleast be 300")
+	}
+	if len(c.Emails) == 0 {
+		return errors.New("AdminsConfig.Emails: Atleast provide one email address to enable the admin APIs")
+	}
+	return nil
+}
+
+type PublicEndpointConfig struct {
+	Scheme       string `yaml:"scheme"`
+	Domain       string `yaml:"domain"`
+	Subdomain    string `yaml:"subdomain"`
+	DebugBaseURL string `yaml:"debugBaseURL"`
+}
+
+func (c *PublicEndpointConfig) Validate() error {
+	if c.Scheme == "" || (c.Scheme != "http" && c.Scheme != "https") {
+		return errors.New("PublicEndpointConfig.Scheme is required and must be either 'http' or 'https'")
+	}
+	if c.Domain == "" {
+		return errors.New("PublicEndpointConfig.Domain is required")
+	}
+	if c.Subdomain == "" {
+		return errors.New("PublicEndpointConfig.Subdomain is required")
+	}
+	return nil
+}
+
+func (p *PublicEndpointConfig) GetBaseURL() string {
+	if opts.Debug && strings.TrimSpace(p.DebugBaseURL) != "" {
+		return p.DebugBaseURL
+	}
+	return fmt.Sprintf("%s://%s.%s", p.Scheme, p.Subdomain, p.Domain)
+}
+
+func (p *PublicEndpointConfig) GetTenantBaseURL(tenant string) string {
+	return fmt.Sprintf("%s://%s.%s.%s", p.Scheme, tenant, p.Subdomain, p.Domain)
+}
+
+type ServerConfig struct {
+	Host       string `yaml:"host"`
+	Port       int    `yaml:"port"`
+	InstanceId string `yaml:"instanceId"`
+	EnableTLS  bool   `yaml:"enableTLS"`
+}
+
+func (c *ServerConfig) Validate() error {
+	if c.Host == "" {
+		return errors.New("ServerConfig.Host is required")
+	}
+	if c.Port < 1024 || c.Port > 65535 {
+		return errors.New("ServerConfig.Port is required to be between 1024 and 65535")
+	}
+	if c.InstanceId == "" {
+		return errors.New("ServerConfig.InstanceId is required")
+	}
+	return nil
+}
+
+type ObservabilityConfig struct {
+	Logs    LogsConfig      `yaml:"logs"`
+	Metrics MetricsConfig   `yaml:"metrics"`
+	Tracing ObsCommonConfig `yaml:"tracing"`
+}
+
+func (c *ObservabilityConfig) Validate() error {
+	err := c.Logs.Validate()
+	if err != nil {
+		return err
+	}
+	err = c.Metrics.Validate()
+	if err != nil {
+		return err
+	}
+	err = c.Tracing.Validate()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type ObsCommonConfig struct {
+	Endpoint string  `yaml:"endpoint"`
+	Path     *string `yaml:"path,omitempty"`
+	// must be one of "http/protobuf", "grpc", "stdout"
+	//
+	// stdout means no exporter, just log to stdout
+	Protocol     string            `yaml:"protocol"`
+	Headers      map[string]string `yaml:"headers"`
+	WithInsecure bool              `yaml:"withInsecure"`
+}
+
+func (c *ObsCommonConfig) Validate() error {
+	if c.Protocol == "" {
+		c.Protocol = "stdout"
+	}
+	if c.Protocol != "http/protobuf" && c.Protocol != "grpc" && c.Protocol != "stdout" {
+		return errors.New("ObsCommonConfig.Protocol must be one of 'http/protobuf', 'grpc', 'stdout'")
+	}
+	if c.Protocol != "stdout" && c.Endpoint == "" {
+		return errors.New("ObsCommonConfig.Endpoint is required when Protocol is not 'stdout'")
+	}
+	if c.Path != nil && *c.Path == "" {
+		return errors.New("ObsCommonConfig.Path cannot be empty string if set")
+	}
+	if C.Debug && strings.Contains(c.Endpoint, "localhost:") {
+		// In debug mode, allow localhost endpoints
+		c.WithInsecure = true
+	}
+	// default path is used when not set
+	return nil
+}
+
+type LogsConfig struct {
+	// must be one of "debug" | "info" | "warn" | "error" | "dpanic" | "panic" | "fatal"
+	//
+	// Logs at and above the specified level will be logged.
+	Level           string `yaml:"level"`
+	Batch           bool   `yaml:"batch"`
+	ObsCommonConfig `yaml:",inline"`
+}
+
+func (c *LogsConfig) Validate() error {
+	if c.Level == "" {
+		return errors.New("LogsConfig.Level is required")
+	}
+	switch c.Level {
+	case "debug", "info", "warn", "error", "dpanic", "panic", "fatal":
+	default:
+		return errors.New("LogsConfig.Level must be one of 'debug', 'info', 'warn', 'error', 'dpanic', 'panic', 'fatal'")
+	}
+	if err := c.ObsCommonConfig.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+type MetricsConfig struct {
+	CollectionIntervalSeconds int `yaml:"collectionIntervalSeconds"` // in seconds
+	ObsCommonConfig           `yaml:",inline"`
+}
+
+func (c *MetricsConfig) Validate() error {
+	if c.CollectionIntervalSeconds < 1 {
+		return errors.New("MetricsConfig.CollectionIntervalSeconds must be at least 1")
+	}
+	if err := c.ObsCommonConfig.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 type PasswordHashingAlgorithm string
 
 const (
-	// Bcrypt is the default password hashing algorithm
-	BcryptPasswordHashingAlgorithm PasswordHashingAlgorithm = "bcrypt"
-	// Argon2id is a more secure password hashing algorithm
 	Argon2idPasswordHashingAlgorithm PasswordHashingAlgorithm = "argon2id"
+	BCryptPasswordHashingAlgorithm   PasswordHashingAlgorithm = "bcrypt"
 )
 
-// Variables for different configurations
-var C *CompleteConfig
+type PasswordConfig struct {
+	// One of "argon2id", "bcrypt"
+	Algorithm PasswordHashingAlgorithm `yaml:"algorithm"`
+
+	// Parameters for Argon2id
+	Argon2idParams *Argon2idParams `yaml:"argon2idParams,omitempty"`
+
+	// Cost for bcrypt
+	BcryptCost *int `yaml:"bcryptCost,omitempty"`
+}
+
+func (c *PasswordConfig) Validate() error {
+	if c.Algorithm == "" {
+		return errors.New("PasswordConfig.Algorithm is required")
+	}
+	if c.Algorithm != "argon2id" && c.Algorithm != "bcrypt" {
+		return errors.New("PasswordConfig.Algorithm must be one of 'argon2id', 'bcrypt'")
+	}
+	switch c.Algorithm {
+	case "argon2id":
+		if c.Argon2idParams == nil {
+			return errors.New("PasswordConfig.Argon2idParams is required when Algorithm is 'argon2id'")
+		}
+		if err := c.Argon2idParams.Validate(); err != nil {
+			return err
+		}
+	case "bcrypt":
+		if c.BcryptCost == nil {
+			// Default cost is 10
+			c.BcryptCost = new(int)
+			*c.BcryptCost = 10
+			return nil
+		}
+		if *c.BcryptCost < 4 || *c.BcryptCost > 31 {
+			return errors.New("PasswordConfig.BcryptCost must be between 4 and 31")
+		}
+	}
+	return nil
+}
+
+type Argon2idParams struct {
+	Memory      int `yaml:"memory"`
+	Iterations  int `yaml:"iterations"`
+	Parallelism int `yaml:"parallelism"`
+	SaltLength  int `yaml:"saltLength"`
+	KeyLength   int `yaml:"keyLength"`
+}
+
+func (c *Argon2idParams) Validate() error {
+	if c.Memory == 0 && c.Iterations == 0 && c.Parallelism == 0 && c.SaltLength == 0 && c.KeyLength == 0 {
+		// All default values
+		c.Memory = 16384 // 16 MB
+		c.Iterations = 2
+		c.Parallelism = 1
+		c.SaltLength = 16
+		c.KeyLength = 32
+		return nil
+	}
+	if c.Memory < 65536 {
+		return errors.New("Argon2idParams.Memory must be at least 65536")
+	}
+	if c.Iterations < 1 {
+		return errors.New("Argon2idParams.Iterations must be at least 1")
+	}
+	if c.Parallelism < 1 {
+		return errors.New("Argon2idParams.Parallelism must be at least 1")
+	}
+	if c.SaltLength < 16 {
+		return errors.New("Argon2idParams.SaltLength must be at least 16")
+	}
+	if c.KeyLength < 32 {
+		return errors.New("Argon2idParams.KeyLength must be at least 32")
+	}
+	return nil
+}
+
+type JWTConfig struct {
+	SessionTokenExpirySeconds int `yaml:"sessionTokenExpirySeconds"`
+	RefreshTokenExpirySeconds int `yaml:"refreshTokenExpirySeconds"`
+
+	// NOTE: Do not add the subdomain or domain you added in PublicConfig here.
+	//
+	// This is only for additional audiences.
+	Audiences []string `yaml:"audiences"`
+}
+
+func (c *JWTConfig) Validate() error {
+	if c.SessionTokenExpirySeconds < 900 {
+		return errors.New("JWTConfig.SessionTokenExpirySeconds must be greater than 900")
+	}
+	if c.RefreshTokenExpirySeconds < 86400 {
+		return errors.New("JWTConfig.RefreshTokenExpirySeconds must be greater than 86400")
+	}
+	return nil
+}
+
+type NotificationsConfig struct {
+	Email EmailConfig `yaml:"email"`
+	SMS   *SMSConfig  `yaml:"sms,omitempty"`
+}
+
+func (c *NotificationsConfig) Validate() error {
+	if err := c.Email.Validate(); err != nil {
+		return err
+	}
+	if err := c.SMS.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+type EmailConfig struct {
+	// One of "smtp", "sendgrid", "ses"
+	Provider string `yaml:"provider"`
+
+	// SMTP specific settings
+	SMTP *SMTPConfig `yaml:"smtp,omitempty"`
+
+	// SendGrid specific settings
+	SendGrid *SendGridConfig `yaml:"sendgrid,omitempty"`
+
+	// AWS SES specific settings
+	SES *SESConfig `yaml:"ses,omitempty"`
+
+	// Endpoints used in email templates
+	Endpoints EmailTemplateEndpoints `yaml:"endpoints"`
+}
+
+func (c *EmailConfig) Validate() error {
+	if c.Provider == "" {
+		return errors.New("EmailConfig.Provider is required")
+	}
+	if c.Provider != "smtp" && c.Provider != "sendgrid" && c.Provider != "ses" {
+		return errors.New("EmailConfig.Provider must be one of 'smtp', 'sendgrid', 'ses'")
+	}
+	switch c.Provider {
+	case "smtp":
+		if c.SMTP == nil {
+			return errors.New("EmailConfig.SMTP is required when Provider is 'smtp'")
+		}
+		if err := c.SMTP.Validate(); err != nil {
+			return err
+		}
+	case "sendgrid":
+		if c.SendGrid == nil {
+			return errors.New("EmailConfig.SendGrid is required when Provider is 'sendgrid'")
+		}
+		if err := c.SendGrid.Validate(); err != nil {
+			return err
+		}
+	case "ses":
+		if c.SES == nil {
+			return errors.New("EmailConfig.SES is required when Provider is 'ses'")
+		}
+		if err := c.SES.Validate(); err != nil {
+			return err
+		}
+	}
+	if err := c.Endpoints.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+type SMTPConfig struct {
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"`
+	Password    string `yaml:"password"`
+	FromAddress string `yaml:"fromAddress"`
+	FromName    string `yaml:"fromName"`
+}
+
+func (c *SMTPConfig) Validate() error {
+	if c.Host == "" {
+		return errors.New("SMTPConfig.Host is required")
+	}
+	if c.Port < 1024 || c.Port > 65535 {
+		return errors.New("SMTPConfig.Port must be between 1024 and 65535")
+	}
+	if c.Password == "" {
+		return errors.New("SMTPConfig.Password is required")
+	}
+	if c.FromAddress == "" {
+		return errors.New("SMTPConfig.FromAddress is required")
+	}
+	return nil
+}
+
+type SendGridConfig struct {
+	APIKey      string `yaml:"apiKey"`
+	FromAddress string `yaml:"fromAddress"`
+	FromName    string `yaml:"fromName"`
+}
+
+func (c *SendGridConfig) Validate() error {
+	if c.APIKey == "" {
+		return errors.New("SendGridConfig.APIKey is required")
+	}
+	if c.FromAddress == "" {
+		return errors.New("SendGridConfig.FromAddress is required")
+	}
+	if c.FromName == "" {
+		return errors.New("SendGridConfig.FromName is required")
+	}
+	return nil
+}
+
+type SESConfig struct {
+	Region          string `yaml:"region"`
+	AccessKeyID     string `yaml:"accessKeyID"`
+	SecretAccessKey string `yaml:"secretAccessKey"`
+	FromAddress     string `yaml:"fromAddress"`
+	FromName        string `yaml:"fromName"`
+}
+
+func (c *SESConfig) Validate() error {
+	if c.Region == "" {
+		return errors.New("SESConfig.Region is required")
+	}
+	if c.AccessKeyID == "" {
+		return errors.New("SESConfig.AccessKeyID is required")
+	}
+	if c.SecretAccessKey == "" {
+		return errors.New("SESConfig.SecretAccessKey is required")
+	}
+	if c.FromAddress == "" {
+		return errors.New("SESConfig.FromAddress is required")
+	}
+	if c.FromName == "" {
+		return errors.New("SESConfig.FromName is required")
+	}
+	return nil
+}
+
+type EmailTemplateEndpoints struct {
+	Verification  string `yaml:"verification"`
+	PasswordReset string `yaml:"passwordReset"`
+}
+
+func (c *EmailTemplateEndpoints) Validate() error {
+	if c.Verification == "" {
+		return errors.New("EmailTemplateEndpoints.Verification is required")
+	}
+	if c.PasswordReset == "" {
+		return errors.New("EmailTemplateEndpoints.PasswordReset is required")
+	}
+	return nil
+}
+
+type SMSConfig struct {
+	// One of "twilio", "aws"
+	Provider string `yaml:"provider"`
+}
+
+func (c *SMSConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+	if c.Provider == "" {
+		return nil
+		// TODO: Enable validation when SMS is implemented
+		// return errors.New("SMSConfig.Provider is required")
+	}
+	if c.Provider != "twilio" && c.Provider != "aws" {
+		return errors.New("SMSConfig.Provider must be one of 'twilio', 'aws'")
+	}
+	return nil
+}
+
+type BrandingConfig struct {
+	AppName          string `yaml:"appName"`
+	CompanyName      string `yaml:"companyName"`
+	CompanyNameShort string `yaml:"companyNameShort"`
+	SupportURL       string `yaml:"supportURL"`
+}
+
+func (c *BrandingConfig) Validate() error {
+	if c.AppName == "" {
+		return errors.New("BrandingConfig.AppName is required")
+	}
+	if c.CompanyName == "" {
+		return errors.New("BrandingConfig.CompanyName is required")
+	}
+	if c.CompanyNameShort == "" {
+		// CompanyNameShort can be same as AppName if no short version is available
+		c.CompanyNameShort = c.AppName
+	}
+	if c.SupportURL == "" {
+		return errors.New("BrandingConfig.SupportURL is required")
+	}
+	return nil
+}
+
+type SecurityConfig struct {
+	AuditLogs    AuditLogsConfig    `yaml:"auditLogs"`
+	RateLimiting RateLimitingConfig `yaml:"rateLimiting"`
+	APIKeys      []APIKeyConfig     `yaml:"apiKeys"`
+	CORS         CORSConfig         `yaml:"cors"`
+}
+
+func (c *SecurityConfig) Validate() error {
+	for _, apiKey := range c.APIKeys {
+		if err := apiKey.Validate(); err != nil {
+			return err
+		}
+	}
+	if err := c.RateLimiting.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// No Validation required yet for AuditLogsConfig
+type AuditLogsConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+type RateLimitingConfig struct {
+	// Number of requests allowed
+	Rate int `yaml:"rate"`
+
+	// Window duration, say if rate is set to 120, then duration defines whether its 120/s 120/m or 120/h
+	//
+	// Accepted values: s, m, h
+	Duration string `yaml:"duration"`
+}
+
+func (c *RateLimitingConfig) Validate() error {
+	if c.Rate == 0 {
+		return errors.New("RateLimitingConfig.Rate is required")
+	}
+	if strings.TrimSpace(c.Duration) == "" {
+		return errors.New("RateLimitingConfig.Duration is required")
+	}
+	validUnits := map[string]bool{
+		"s": true,
+		"m": true,
+		"h": true,
+	}
+	if !validUnits[c.Duration] {
+		return errors.New("RateLimitingConfig.Duration must be one of 's', 'm', 'h'")
+	}
+	return nil
+}
+
+type APIKeyConfig struct {
+	Name string `yaml:"name"`
+
+	// The key itself. No restriction on the length, but keep it sensible please.
+	// Recommended format: nexeres_[environment:oneof=live,test,dev,staging]_[random alphanumeric string]
+	Key string `yaml:"key"`
+
+	Description string `yaml:"description"`
+}
+
+func (c *APIKeyConfig) Validate() error {
+	if c.Name == "" {
+		return errors.New("APIKeyConfig.Name is required")
+	}
+	if c.Key == "" {
+		return errors.New("APIKeyConfig.Key is required")
+	}
+	if c.Description == "" {
+		return errors.New("APIKeyConfig.Description is required")
+	}
+	return nil
+}
+
+// No Validation required yet for CORSConfig
+type CORSConfig struct {
+	// Allowed origins for CORS requests.
+	// Note: Using "*" WILL NOT work.
+	//
+	// The following origins are allowed by default:
+	//
+	// In debug mode, you can set the public.debugBaseURL to allow any url.
+	//
+	// In production mode, this is allowed:
+	// - https://{public.domain}
+	// - https://{public.subdomain}.{public.domain}
+	//
+	// Any other domains, even other subdomains of {public.domain} will not be allowed by default.
+	// Allowing a domain WOULD NOT allow all its subdomains.
+	// You need to explicitly allow subdomains by specifying them here.
+	// The following formats work:
+	// allowedOrigins:
+	// - "https://*.example.com"
+	// - "https://xyz.example.com"
+	// - "https://example.com"
+	AllowedOrigins []string `yaml:"allowedOrigins"`
+}
+
+type StoresConfig struct {
+	PostgresDSN string      `yaml:"postgresDSN"`
+	Redis       RedisConfig `yaml:"redis"`
+	S3          S3Config    `yaml:"s3"`
+}
+
+func (c *StoresConfig) Validate() error {
+	if c.PostgresDSN == "" {
+		return errors.New("StoresConfig.PostgresDSN is required")
+	}
+	if err := c.Redis.Validate(); err != nil {
+		return err
+	}
+	if err := c.S3.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+type RedisConfig struct {
+	Address  string  `yaml:"address"`
+	Password *string `yaml:"password,omitempty"`
+	DB       int     `yaml:"db"`
+}
+
+func (c *RedisConfig) Validate() error {
+	if c.Address == "" {
+		return errors.New("RedisConfig.Address is required")
+	}
+	return nil
+}
+
+type S3Config struct {
+	Endpoint        string `yaml:"endpoint"`
+	AccessKeyID     string `yaml:"accessKeyID"`
+	SecretAccessKey string `yaml:"secretAccessKey"`
+	Region          string `yaml:"region"`
+	UseSSL          bool   `yaml:"useSSL"`
+	Type            string `yaml:"type"` // one of "aws", "minio", "seaweedfs"
+}
+
+func (c *S3Config) Validate() error {
+	if c.Endpoint == "" {
+		return errors.New("S3Config.Endpoint is required")
+	}
+	if c.AccessKeyID == "" {
+		return errors.New("S3Config.AccessKeyID is required")
+	}
+	if c.SecretAccessKey == "" {
+		return errors.New("S3Config.SecretAccessKey is required")
+	}
+	if c.Region == "" {
+		return errors.New("S3Config.Region is required")
+	}
+	if c.Type == "" {
+		return errors.New("S3Config.Type is required")
+	}
+	validTypes := map[string]bool{
+		"aws":       true,
+		"minio":     true,
+		"seaweedfs": true,
+	}
+	if !validTypes[c.Type] {
+		return errors.New("S3Config.Type must be one of 'aws', 'minio', 'seaweedfs'")
+	}
+	return nil
+}
+
+// Finds configuration files and reports which files exists.
+//
+// If file exists at provided cfg path, it returns that path only.
+// Otherwise, the following paths are checked, and the file that's found first is returned.
+//   - /etc/nbrglm/workspace/nexeres/.nexeres.yaml
+//   - /home/user/.nexeres.yaml
+func findConfigFile(cfg string) (string, error) {
+	if cfg != "" && utils.FileExists(cfg) {
+		return cfg, nil
+	}
+	if utils.FileExists("/etc/nbrglm/workspace/nexeres/.nexeres.yaml") {
+		return "/etc/nbrglm/workspace/nexeres/.nexeres.yaml", nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	homeFile := path.Join(home, ".nexeres.yaml")
+	if utils.FileExists(homeFile) {
+		return homeFile, nil
+	}
+	return "", errors.New("no config file found")
+}
+
+var C *NexeresConfig
 
 func Environment() string {
 	if opts.Debug {
@@ -35,548 +730,31 @@ func Environment() string {
 	return "production"
 }
 
-// ObservabilityConfig holds the configuration for observability features
-//
-// Used for logs, traces and metrics (Recommended: SigNoz)
-type ObservabilityConfig struct {
-	// Logs configuration
-	Logs LogsConfig `json:"logs" yaml:"logs" validate:"required"`
-
-	// Traces configuration
-	Traces TracesConfig `json:"traces" yaml:"traces" validate:"required"`
-
-	// Metrics configuration
-	Metrics MetricsConfig `json:"metrics" yaml:"metrics" validate:"required"`
-}
-
-// LogsConfig holds the configuration for logs
-type LogsConfig struct {
-	Level string `json:"level" yaml:"level" validate:"required,oneof=debug info warn error dpanic panic fatal"`
-
-	// Endpoint is the endpoint for the OpenTelemetry logs exporter
-	// If not set, logs will be printed to stdout only.
-	Endpoint string `json:"endpoint" yaml:"endpoint" validate:"required_unless=Protocol stdout,domain"`
-
-	// EndpointPath is the URL path for the OpenTelemetry logs exporter
-	//
-	// If not set, it defaults to /v1/logs
-	EndpointPath string `json:"endpointPath" yaml:"endpointPath" validate:"excluded_unless=Protocol http/protobuf"`
-
-	// Protocol is the protocol for the OpenTelemetry logs exporter
-	// Supported values: grpc, http/protobuf, stdout
-	Protocol string `json:"protocol" yaml:"protocol" validate:"required_if=Enable true,oneof=grpc http/protobuf stdout"`
-
-	// Headers are the headers to be sent with Otel exporter requests,
-	// You can add API keys or authentication tokens here as needed by your Otel collector/platform.
-	Headers map[string]string `json:"headers" yaml:"headers"`
-
-	// WithInsecure indicates whether to use insecure connection for Otel exporter
-	WithInsecure bool `json:"withInsecure" yaml:"withInsecure"`
-}
-
-// TracesConfig holds the configuration for traces
-type TracesConfig struct {
-	// Endpoint is the endpoint for the OpenTelemetry traces exporter
-	// If not set, traces will be printed to stdout only.
-	Endpoint string `json:"endpoint" yaml:"endpoint" validate:"required_unless=Protocol stdout,omitempty,domain"`
-
-	// EndpointPath is the URL path for the OpenTelemetry traces exporter
-	//
-	// If not set, it defaults to /v1/traces
-	EndpointPath string `json:"endpointPath" yaml:"endpointPath" validate:"required_if=Protocol http/protobuf"`
-
-	// Protocol is the protocol for the OpenTelemetry traces exporter
-	// Supported values: grpc, http/protobuf, stdout
-	Protocol string `json:"protocol" yaml:"protocol" validate:"required,oneof=grpc http/protobuf stdout"`
-
-	// Headers are the headers to be sent with Otel exporter requests,
-	// You can add API keys or authentication tokens here as needed by your Otel collector/platform.
-	Headers map[string]string `json:"headers" yaml:"headers"`
-
-	// WithInsecure indicates whether to use insecure connection for Otel exporter
-	WithInsecure bool `json:"withInsecure" yaml:"withInsecure"`
-}
-
-// MetricsConfig holds the configuration for metrics
-type MetricsConfig struct {
-	// Endpoint is the endpoint for the OpenTelemetry metrics exporter
-	// If not set, metrics will be printed to stdout only.
-	Endpoint string `json:"endpoint" yaml:"endpoint" validate:"required_unless=Protocol stdout,domain"`
-
-	// EndpointPath is the URL path for the OpenTelemetry metrics exporter
-	//
-	// If not set, it defaults to /v1/metrics
-	EndpointPath string `json:"endpointPath" yaml:"endpointPath" validate:"required_if=Protocol http/protobuf"`
-
-	// Protocol is the protocol for the OpenTelemetry metrics exporter
-	// Supported values: grpc, http/protobuf, stdout
-	Protocol string `json:"protocol" yaml:"protocol" validate:"required,oneof=grpc http/protobuf stdout"`
-
-	// Headers are the headers to be sent with Otel exporter requests,
-	// You can add API keys or authentication tokens here as needed by your Otel collector/platform.
-	Headers map[string]string `json:"headers" yaml:"headers"`
-
-	// WithInsecure indicates whether to use insecure connection for Otel exporter
-	WithInsecure bool `json:"withInsecure" yaml:"withInsecure"`
-}
-
-// PublicConfig holds the public server configuration options
-//
-// Note: If hosting Nexeres at "auth.example.com", then set the values as follows:
-//
-// domain: example.com
-// subDomain: auth
-//
-// Since, the OIDC issuer URLs will be like:
-// https://auth.example.com/.well-known/openid-configuration
-//
-// Your DNS should be configured to point to the server's IP address,
-// for example:
-// *.auth.example.com should point to the server's IP address.
-type PublicConfig struct {
-	// Scheme for public URLs (http/https)
-	//
-	// Use "https" even if TLS termination is handled by reverse proxy
-	Scheme string `json:"scheme" yaml:"scheme" validate:"required,oneof=http https"`
-
-	// Domain is the domain at which Nexeres UI is being hosted.
-	//
-	// Eg. if hosting Nexeres at auth.example.com, provide "example.com" here.
-	//
-	// This setting is used as the Domain for all Cookies (except Refresh Token Cookie, that is only set at "subdomain.domain")
-	Domain string `json:"domain" yaml:"domain" validate:"required"`
-
-	// Subdomain at which Nexeres UI is being hosted.
-	//
-	// Eg. If hosting Nexeres at auth.example.com, provide "auth" here.
-	SubDomain string `json:"subDomain" yaml:"subDomain" validate:"required"`
-
-	DebugBaseURL string `json:"debugBaseURL,omitempty" yaml:"debugBaseURL,omitempty" validate:"omitempty,url"`
-}
-
-func (p *PublicConfig) GetBaseURL() string {
-	if opts.Debug && strings.TrimSpace(p.DebugBaseURL) != "" {
-		return p.DebugBaseURL
+func LoadConfig(cfg string) error {
+	C = new(NexeresConfig)
+	if v, err := findConfigFile(cfg); err != nil {
+		return err
+	} else {
+		cfg = v
 	}
-	return fmt.Sprintf("%s://%s.%s", p.Scheme, p.SubDomain, p.Domain)
-}
-
-func (p *PublicConfig) GetTenantBaseURL(tenant string) string {
-	return fmt.Sprintf("%s://%s.%s.%s", p.Scheme, tenant, p.SubDomain, p.Domain)
-}
-
-// ServerConfig holds the configuration for the server
-type ServerConfig struct {
-	// Host interface to listen on, Default: localhost
-	Host string `json:"host" yaml:"host" validate:"required"`
-	// Port to listen on, Default: 3360, must be between 1024 and 65535
-	Port string `json:"port" yaml:"port" validate:"required"`
-
-	// Instance ID for the metrics, logs, traces....
-	InstanceID string `json:"instanceID" yaml:"instanceID" validate:"required"`
-
-	// TLSConfig contains the TLS configuration for the server
-	//
-	// If TLS is enabled, the server will listen on HTTPS, else HTTP.
-	TLSConfig bool `json:"tls" yaml:"tls"`
-}
-
-type AdminConfig struct {
-	// Emails is a list of admin emails.
-	//
-	// For login, an email will be sent to the user's address if it exists in this list.
-	// The user can then use the code to login.
-	Emails []string `json:"-" yaml:"emails" validate:"required,dive,email"`
-
-	// The session, without any calls to an admin api, will expire in this duration.
-	//
-	// In seconds, default 15 minutes
-	SessionTimeout int `json:"-" yaml:"sessionTimeout" validate:"required,min=300"`
-}
-
-// PasswordConfig holds the configuration for password policies
-type PasswordConfig struct {
-	// The algorithm used for hashing passwords, default: bcrypt
-	Algorithm PasswordHashingAlgorithm `json:"-" yaml:"algorithm" validate:"required,oneof=bcrypt argon2id"`
-
-	// Configuration for Bcrypt password hashing
-	Bcrypt BcryptConfig `json:"-" yaml:"bcrypt" validate:"required_if=Algorithm bcrypt"`
-
-	// Configuration for Argon2id password hashing
-	Argon2id Argon2idConfig `json:"-" yaml:"argon2id" validate:"required_if=Algorithm argon2id"`
-}
-
-// BcryptConfig holds the configuration for Bcrypt password hashing
-type BcryptConfig struct {
-	// The cost factor for Bcrypt hashing (default is 10)
-	Cost int `json:"-" yaml:"cost" validate:"required,min=10,max=31"`
-}
-
-// Argon2idConfig holds the configuration for Argon2id password hashing
-type Argon2idConfig struct {
-	// Memory in KiB (16MB minimum, and default)
-	Memory int `json:"-" yaml:"memory" validate:"required,min=16384"`
-
-	// Number of iterations (3-4 recommended, default 3)
-	Iterations int `json:"-" yaml:"iterations" validate:"required,min=1"`
-
-	// Number of parallel threads (1-4 recommended, default 1)
-	Parallelism int `json:"-" yaml:"parallelism" validate:"required,min=1"`
-
-	// Salt length in bytes (16-32 recommended, default 16)
-	SaltLength int `json:"-" yaml:"saltLength" validate:"required,min=16,max=32"`
-
-	// Key length in bytes (32-64 recommended, default 32)
-	KeyLength int `json:"-" yaml:"keyLength" validate:"required,min=32,max=64"`
-}
-
-// JWTConfig holds the configuration for JWT tokens
-type JWTConfig struct {
-	// Session token expiration time in seconds (default: 1hr, 3600)
-	SessionTokenExpiration int `json:"sessionTokenExpiration" yaml:"sessionTokenExpiration" validate:"required,min=60"`
-
-	// Refresh token expiration time in seconds (default: 30d, 2592000)
-	RefreshTokenExpiration int `json:"refreshTokenExpiration" yaml:"refreshTokenExpiration" validate:"required,min=86400"`
-
-	// Audiences claim for the JWT.
-	//
-	// NOTE: This is NOT for OIDC. This is for the session tokens! OIDC configuration is stored in the DB per tenant.
-	//
-	// NOTE: Do not add the subdomain or domain you added in the Public Config here, it is automatically added and will be duplicated if you add.
-	// Eg. If domain has value example.com and subdomain has value auth,
-	// then auth.example.com, and example.com are automatically added as audience claims.
-	Audiences []string `json:"-" yaml:"audiences" validate:"required,dive,required"`
-}
-
-type NotificationsConfig struct {
-	// Email configuration for sending notifications
-	Email EmailNotificationConfig `json:"email" yaml:"email" validate:"required"`
-
-	// SMS Configuration for sending notifications
-	SMS *SMSNotificationConfig `json:"sms,omitempty" yaml:"sms,omitempty" validate:"omitempty"`
-}
-
-// EmailNotificationConfig holds the configuration for email notifications.
-type EmailNotificationConfig struct {
-	// Provider is the email provider to use for sending emails.
-	Provider string `json:"provider" yaml:"provider" validate:"required,oneof=ses sendgrid smtp"`
-
-	// SendGridConfig holds the configuration for SendGrid email provider.
-	SendGrid *SendGridProviderConfig `json:"-" yaml:"sendgrid,omitempty" validate:"omitempty,required_if=Provider sendgrid"`
-
-	// SMTPConfig holds the configuration for SMTP email provider.
-	SMTP *SMTPProviderConfig `json:"-" yaml:"smtp,omitempty" validate:"omitempty,required_if=Provider smtp"`
-
-	// SESConfig holds the configuration for AWS SES email provider.
-	SES *SESProviderConfig `json:"-" yaml:"ses,omitempty" validate:"omitempty,required_if=Provider ses"`
-
-	// Endpoints holds the configuration for URLs inside emails.
-	Endpoints EmailEndpointsConfig `json:"endpoints" yaml:"endpoints" validate:"required"`
-}
-
-// EmailEndpointsConfig holds the configuration for URLs inside emails.
-type EmailEndpointsConfig struct {
-	// VerificationEmail is the endpoint for the email verification link.
-	// A `token` parameter will be passed to this URL.
-	// Pass a full url, eg. https://auth.example.com/verify-email
-	VerificationEmail string `json:"verificationEmail" yaml:"verificationEmail" validate:"required,url"`
-
-	// PasswordReset is the endpoint for the password reset link.
-	// A `token` parameter will be passed to this URL.
-	// Pass a full url, eg. https://auth.example.com/password-reset
-	PasswordReset string `json:"passwordReset" yaml:"passwordReset" validate:"required,url"`
-}
-
-// SendGridProviderConfig holds the configuration for SendGrid email provider.
-type SendGridProviderConfig struct {
-	// API key for SendGrid
-	APIKey string `json:"-" yaml:"apiKey" validate:"required"`
-
-	// Email address from which notifications are sent
-	FromAddress string `json:"-" yaml:"fromAddress" validate:"required,email"`
-
-	// Name associated with the FromAddress, optional
-	FromName *string `json:"-" yaml:"fromName,omitempty"`
-}
-
-// SMTPProviderConfig holds the configuration for SMTP email provider.
-//
-// Note: SMTP is a generic email provider that can be used with any SMTP server.
-// IT DOES NOT SUPPORT RETRIES, OR ANY ADVANCED FEATURES.
-// It is recommended to use a more robust provider like SendGrid or AWS SES for production use.
-type SMTPProviderConfig struct {
-	// SMTP server host
-	Host string `json:"-" yaml:"host" validate:"required"`
-
-	// SMTP server port
-	Port string `json:"-" yaml:"port"`
-
-	// Email address from which notifications are sent
-	FromAddress string `json:"-" yaml:"fromAddress" validate:"required,email"`
-
-	// Password for SMTP authentication
-	Password string `json:"-" yaml:"password" validate:"required"`
-}
-
-// SESProviderConfig holds the configuration for AWS SES email provider.
-type SESProviderConfig struct {
-	// AWS region where SES is configured
-	Region string `json:"-" yaml:"region" validate:"required"`
-
-	// AWS Access Key ID for SES
-	AccessKeyID string `json:"-" yaml:"accessKeyID" validate:"required"`
-
-	// AWS Secret Access Key for SES
-	SecretAccessKey string `json:"-" yaml:"secretAccessKey" validate:"required"`
-
-	// Email address from which notifications are sent
-	FromAddress string `json:"-" yaml:"fromAddress" validate:"required,email"`
-
-	// Optional: Name associated with the FromAddress, used in email headers, if not provided, AppName is used.
-	FromName *string `json:"-" yaml:"fromName,omitempty"`
-}
-
-// SMSNotificationConfig holds the configuration for SMS notifications.
-type SMSNotificationConfig struct {
-	// TODO: Implement SMSNotificationConfig
-	Provider string `json:"provider" yaml:"provider" validate:"required,oneof=twilio"`
-}
-
-// BrandingConfig holds the configuration for branding elements such as names.
-type BrandingConfig struct {
-	// AppName is the name of the application, used in various places like email templates, UI, etc.
-	AppName string `json:"appName" yaml:"appName" validate:"required"`
-
-	// CompanyName is the name of the company, used in emails, UI, etc.
-	CompanyName string `json:"companyName" yaml:"companyName" validate:"required"`
-
-	// CompanyNameShort is a short version of the company name, used in places where space is limited.
-	CompanyNameShort string `json:"companyNameShort" yaml:"companyNameShort" validate:"required"`
-
-	// SupportURL is the URL for support, used in emails, UI, etc.
-	SupportURL string `json:"supportURL" yaml:"supportURL" validate:"required,url"`
-}
-
-// SecurityConfig holds the security-related configurations for the application.
-type SecurityConfig struct {
-	// Enable or disable audit logs.
-	AuditLogs AuditLogsConfig `json:"auditLogs" yaml:"auditLogs" validate:"required"`
-
-	// The list of API Keys which are allowed to access the API endpoints.
-	// Requests without an API key, or with a key not specified here, will be denied with 401.
-	APIKeys []APIKeyConfig `json:"apiKeys" yaml:"apiKeys" validate:"required,dive"`
-
-	// CORS configuration for the application.
-	CORS CORSConfig `json:"-" yaml:"cors" validate:"required"`
-
-	// Rate limiting configuration.
-	RateLimit RateLimitConfig `json:"rateLimit" yaml:"rateLimit" validate:"required"`
-}
-
-type AuditLogsConfig struct {
-	// Enable or disable audit logs.
-	Enable bool `json:"enable" yaml:"enable"`
-}
-
-type APIKeyConfig struct {
-	// The name of the API Key
-	Name string `json:"name" yaml:"name" validate:"required"`
-
-	// Description of the key
-	Description string `json:"description" yaml:"description" validate:"required"`
-
-	// The key itself. No restriction on the length, but keep it sensible please.
-	Key string `json:"-" yaml:"key" validate:"required"`
-}
-
-// CORSConfig holds the configuration for Cross-Origin Resource Sharing (CORS).
-type CORSConfig struct {
-	// AllowedOrigins is a list of origins that are allowed to access the resources.
-	AllowedOrigins []string `json:"-" yaml:"allowedOrigins" validate:"dive,url"`
-
-	// AllowedMethods is a list of HTTP methods that are allowed.
-	AllowedMethods []string `json:"-" yaml:"allowedMethods" validate:"required,dive,oneof=GET POST PUT DELETE OPTIONS PATCH HEAD"`
-
-	// AllowedHeaders is a list of headers that are allowed in requests.
-	AllowedHeaders []string `json:"-" yaml:"allowedHeaders" validate:"required"`
-}
-
-// RateLimitConfig holds the configuration for rate limiting the API.
-type RateLimitConfig struct {
-	// Rate limit for API requests.
-	// Format: "R-U", where R is requests and U is the time unit (s - per second, m - per minute, h - per hour, d - per day)
-	Rate string `json:"rate" yaml:"rate" validate:"required"`
-}
-
-// StoresConfig holds the configuration for the different stores like postgres,redis, s3-like.
-type StoresConfig struct {
-	// Postgres configuration
-	Postgres PostgreSQLConfig `json:"-" yaml:"postgres" validate:"required"`
-
-	// Redis configuration
-	Redis RedisConfig `json:"-" yaml:"redis" validate:"required"`
-
-	S3 S3Config `json:"-" yaml:"s3" validate:"required"`
-}
-
-// S3Config holds the configuration for S3-like object storage.
-type S3Config struct {
-	// Endpoint is the S3-compatible storage endpoint.
-	Endpoint string `json:"-" yaml:"endpoint" validate:"required,url"`
-
-	// AccessKeyID is the access key ID for the S3 bucket.
-	AccessKeyID string `json:"-" yaml:"accessKeyID" validate:"required"`
-
-	// SecretAccessKey is the secret access key for the S3 bucket.
-	SecretAccessKey string `json:"-" yaml:"secretAccessKey" validate:"required"`
-
-	// Region is the region where the S3 bucket is located.
-	Region string `json:"-" yaml:"region" validate:"required"`
-
-	// UseSSL indicates whether to use SSL for S3 requests.
-	// Set to true if using HTTPS
-	UseSSL bool `json:"-" yaml:"useSSL"`
-}
-
-// PostgreSQLConfig holds the configuration for connecting to a PostgreSQL database
-type PostgreSQLConfig struct {
-	// Data Source Name for the database connection, in pgx format
-	//
-	// For connection pooling arguments, take a look at https://pkg.go.dev/github.com/jackc/pgx/v5@v5.7.5/pgxpool#ParseConfig
-	DSN string `json:"-" yaml:"dsn" validate:"required"`
-}
-
-// RedisConfig holds the configuration for connecting to a Redis database
-type RedisConfig struct {
-	// Address of the Redis server, e.g., "localhost:6379"
-	Address string `json:"-" yaml:"address" validate:"required"`
-
-	// Password for the Redis server, if any
-	Password *string `json:"-" yaml:"password,omitempty"`
-
-	// Database index to use (default is 0)
-	DB int `json:"-" yaml:"db" validate:"min=0"`
-}
-
-// This represents a temporary struct for configuration extraction from the config file.
-type CompleteConfig struct {
-	// Debug mode for the application
-	Debug bool `json:"debug" yaml:"debug"`
-	// Admins is a list of credentials
-	Admins        AdminConfig         `json:"-" yaml:"admins" validate:"required"`
-	Public        PublicConfig        `json:"public" yaml:"public" validate:"required"`
-	Multitenancy  bool                `json:"multitenancy" yaml:"multitenancy"`
-	Server        ServerConfig        `json:"-" yaml:"server" validate:"required"`
-	Observability ObservabilityConfig `json:"-" yaml:"observability" validate:"required"`
-	Password      PasswordConfig      `json:"-" yaml:"password" validate:"required"`
-	JWT           JWTConfig           `json:"jwt" yaml:"jwt" validate:"required"`
-	Notifications NotificationsConfig `json:"notifications" yaml:"notifications" validate:"required"`
-	Branding      BrandingConfig      `json:"branding" yaml:"branding" validate:"required"`
-	Security      SecurityConfig      `json:"security" yaml:"security" validate:"required"`
-	Stores        StoresConfig        `json:"-" yaml:"stores" validate:"required"`
-}
-
-func (c *CompleteConfig) KoanfMerge(other *koanf.Koanf) (*koanf.Koanf, error) {
-	kf := koanf.New(".")
-	if err := kf.Load(structs.Provider(defaultConfig, "yaml"), nil); err != nil {
-		return nil, err
-	}
-
-	if err := other.Merge(kf); err != nil {
-		return nil, err
-	}
-
-	return other, nil
-}
-
-// ConfigError represents an error that occurs during configuration initialization/reinitialization
-type ConfigError struct {
-	Message         string
-	UnderlyingError error
-}
-
-func (c ConfigError) Error() string {
-	if c.UnderlyingError != nil {
-		return fmt.Sprintf("%v, UnderlyingError: %v", c.Message, c.UnderlyingError.Error())
-	}
-	return c.Message
-}
-
-func LoadConfigOptions(configFile string) (err error) {
-	C = new(CompleteConfig)
-	filePath, err := filepath.Abs(configFile)
+	abs, err := filepath.Abs(cfg)
 	if err != nil {
-		return ConfigError{
-			Message: fmt.Sprintf("Unable to get convert given path (%s) to absolute path, Error: %v", configFile, err.Error()),
-		}
-	}
-
-	if err := InitKoanf(filePath); err != nil {
 		return err
 	}
-
+	bytes, err := os.ReadFile(abs)
+	if err != nil {
+		return err
+	}
+	expanded := os.ExpandEnv(string(bytes))
+	err = yaml.Unmarshal([]byte(expanded), C)
+	if err != nil {
+		return err
+	}
+	err = C.Validate()
+	if err != nil {
+		return err
+	}
+	opts.ConfigPath = &abs
+	opts.Debug = C.Debug
 	return nil
-}
-
-var defaultConfig = CompleteConfig{
-	Debug:        true,
-	Multitenancy: false,
-	Admins: AdminConfig{
-		Emails:         []string{},
-		SessionTimeout: 900,
-	},
-	Public: PublicConfig{
-		Scheme:       "http",
-		Domain:       "localhost",
-		SubDomain:    "auth",
-		DebugBaseURL: "http://localhost:3360",
-	},
-	Server: ServerConfig{
-		Host:       "localhost",
-		Port:       "3360",
-		InstanceID: "instance.dev.1",
-		TLSConfig:  false,
-	},
-	Observability: ObservabilityConfig{
-		Logs: LogsConfig{
-			Protocol: "stdout",
-		},
-		Traces: TracesConfig{
-			Protocol: "stdout",
-		},
-		Metrics: MetricsConfig{
-			Protocol: "stdout",
-		},
-	},
-	Password: PasswordConfig{
-		Algorithm: BcryptPasswordHashingAlgorithm,
-		Bcrypt: BcryptConfig{
-			Cost: 10,
-		},
-		Argon2id: Argon2idConfig{
-			Memory:      64 * 1024, // 64MB in KiB
-			Iterations:  1,
-			Parallelism: 1,
-			SaltLength:  16,
-			KeyLength:   32,
-		},
-	},
-	JWT: JWTConfig{
-		SessionTokenExpiration: 3600,
-		RefreshTokenExpiration: 2592000,
-	},
-	Notifications: NotificationsConfig{}, // No defaults for notifications
-	Branding:      BrandingConfig{},      // No defaults for branding
-	Security: SecurityConfig{
-		AuditLogs: AuditLogsConfig{
-			Enable: false,
-		},
-		APIKeys: []APIKeyConfig{},
-		CORS: CORSConfig{
-			AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-			AllowedHeaders: []string{"Content-Type", "X-Requested-With", "Accept", "Origin", "User-Agent", "X-NEXERES-Refresh-Token", "X-NEXERES-API-Key", "X-NEXERES-Session-Token", "X-NEXERES-Admin-Token"},
-		},
-		RateLimit: RateLimitConfig{},
-	},
-	Stores: StoresConfig{}, // No defaults for stores
 }

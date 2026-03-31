@@ -9,11 +9,12 @@ import (
 	"go.uber.org/zap"
 )
 
-func NewSMTPEmailSender(host, port, fromAddress, password string) *SMTPEmailSender {
+func NewSMTPEmailSender(host, port, fromAddress, fromName, password string) *SMTPEmailSender {
 	return &SMTPEmailSender{
 		Host:        host,
 		Port:        port,
 		FromAddress: fromAddress,
+		FromName:    fromName,
 		Password:    password,
 	}
 }
@@ -22,6 +23,7 @@ type SMTPEmailSender struct {
 	Host        string
 	Port        string
 	FromAddress string
+	FromName    string
 	Password    string
 }
 
@@ -35,7 +37,7 @@ func (s *SMTPEmailSender) SendEmail(to string, subject, htmlContent, plainTextCo
 
 	// Create the email headers
 	headers := map[string]string{
-		"From":         s.FromAddress,
+		"From":         fmt.Sprintf("%s <%s>", s.FromName, s.FromAddress),
 		"To":           strings.Join([]string{to}, ","),
 		"Subject":      subject,
 		"MIME-Version": "1.0",

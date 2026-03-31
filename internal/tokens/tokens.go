@@ -21,20 +21,21 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/nbrglm/nexeres/config"
+	"github.com/nbrglm/nexeres/convention"
 	"github.com/nbrglm/nexeres/db"
 	"github.com/nbrglm/nexeres/internal/logging"
 	"go.uber.org/zap"
 )
 
-const NEXERES_API_KeyHeaderName = "X-NEXERES-API-Key"             // Header name for the API key in requests.
-const RefreshTokenHeaderName = "X-NEXERES-Refresh-Token"          // Header name for the refresh token in API requests.
-const SessionTokenHeaderName = "X-NEXERES-Session-Token"          // Header name for the session token in API requests.
-const AdminTokenHeaderName = "X-NEXERES-Admin-Token"              // Header name for the admin token in API requests.
-const AdminTokenExpiryHeaderName = "X-NEXERES-Admin-Token-Expiry" // Header name for the admin token expiry time in API responses.
+const NEXERES_API_KeyHeaderName = "X-NEXERES-API-KEY"             // Header name for the API key in requests.
+const RefreshTokenHeaderName = "X-NEXERES-REFRESH-TOKEN"          // Header name for the refresh token in API requests.
+const SessionTokenHeaderName = "X-NEXERES-SESSION-TOKEN"          // Header name for the session token in API requests.
+const AdminTokenHeaderName = "X-NEXERES-ADMIN-TOKEN"              // Header name for the admin token in API requests.
+const AdminTokenExpiryHeaderName = "X-NEXERES-ADMIN-TOKEN-EXPIRY" // Header name for the admin token expiry time in API responses.
 
 // RegisterHandlers registers the token-related routes with the provided Gin engine.
 func RegisterHandlers(engine *gin.Engine) {
-	// JWKS goes here
+	// TODO: JWKS goes here
 }
 
 // The public/private key pair used for signing and verifying JWT tokens.
@@ -44,7 +45,7 @@ var (
 )
 
 func InitTokens() error {
-	privateKeyData, err := os.ReadFile(config.FilePaths[config.RS256_PRIVATE_KEY])
+	privateKeyData, err := os.ReadFile(convention.FilePaths[convention.RS256_PRIVATE_KEY])
 	if err != nil {
 		return fmt.Errorf("failed to read private key file: %w", err)
 	}
@@ -60,7 +61,7 @@ func InitTokens() error {
 		return errors.New("private key is nil after parsing or not of type *rsa.PrivateKey")
 	}
 
-	publicKeyData, err := os.ReadFile(config.FilePaths[config.RS256_PUBLIC_KEY])
+	publicKeyData, err := os.ReadFile(convention.FilePaths[convention.RS256_PUBLIC_KEY])
 	if err != nil {
 		return fmt.Errorf("failed to read public key file: %w", err)
 	}
@@ -78,7 +79,7 @@ func InitTokens() error {
 		return errors.New("public key is nil after parsing or not of type *rsa.PublicKey")
 	}
 
-	logging.Logger.Info("Tokens initialized successfully", zap.String("privateKeyFile", config.FilePaths[config.RS256_PRIVATE_KEY]), zap.String("publicKeyFile", config.FilePaths[config.RS256_PUBLIC_KEY]))
+	logging.Logger.Info("Tokens initialized successfully", zap.String("privateKeyFile", convention.FilePaths[convention.RS256_PRIVATE_KEY]), zap.String("publicKeyFile", convention.FilePaths[convention.RS256_PUBLIC_KEY]))
 
 	return nil
 }
@@ -142,12 +143,12 @@ func GenerateTokens(userId uuid.UUID, claims NexeresClaims) (*Tokens, error) {
 	}
 
 	// Calculate expiration durations
-	sessionTokenExpirationDuration := time.Duration(config.C.JWT.SessionTokenExpiration) * time.Second
-	refreshTokenExpDuration := time.Duration(config.C.JWT.RefreshTokenExpiration) * time.Second
+	sessionTokenExpirationDuration := time.Duration(config.C.JWT.SessionTokenExpirySeconds) * time.Second
+	refreshTokenExpDuration := time.Duration(config.C.JWT.RefreshTokenExpirySeconds) * time.Second
 
 	// Set the standard claims as per RFC 7519 JWT specification.
 	claims.RegisteredClaims = jwt.RegisteredClaims{
-		Issuer:    config.C.Public.GetBaseURL(),
+		Issuer:    config.C.PublicEndpoint.GetBaseURL(),
 		Subject:   userId.String(),
 		Audience:  jwt.ClaimStrings(config.C.JWT.Audiences),
 		ExpiresAt: jwt.NewNumericDate(now.Add(sessionTokenExpirationDuration)),
@@ -185,12 +186,12 @@ func RefreshSessionTokens(session db.Session, claims NexeresClaims) (*Tokens, er
 	now := time.Now().UTC()
 
 	// Calculate expiration durations
-	sessionTokenExpiryDuration := time.Duration(config.C.JWT.SessionTokenExpiration) * time.Second
-	refreshTokenExpDuration := time.Duration(config.C.JWT.RefreshTokenExpiration) * time.Second
+	sessionTokenExpiryDuration := time.Duration(config.C.JWT.SessionTokenExpirySeconds) * time.Second
+	refreshTokenExpDuration := time.Duration(config.C.JWT.RefreshTokenExpirySeconds) * time.Second
 
 	// Set the standard claims as per RFC 7519 JWT specification.
 	claims.RegisteredClaims = jwt.RegisteredClaims{
-		Issuer:    config.C.Public.GetBaseURL(),
+		Issuer:    config.C.PublicEndpoint.GetBaseURL(),
 		Subject:   session.UserID.String(),
 		Audience:  jwt.ClaimStrings(config.C.JWT.Audiences),
 		ExpiresAt: jwt.NewNumericDate(now.Add(sessionTokenExpiryDuration)),

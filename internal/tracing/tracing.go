@@ -6,10 +6,10 @@ package tracing
 import (
 	"context"
 
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
 	"github.com/nbrglm/nexeres/config"
 	"github.com/nbrglm/nexeres/opts"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"github.com/riandyrn/otelchi"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -37,22 +37,22 @@ func (e *TracingConfigurationError) Error() string {
 }
 
 func InitTracer(ctx context.Context) (err error) {
-	res := resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName(opts.Name), semconv.ServiceVersion(opts.Version), semconv.ServiceInstanceID(config.C.Server.InstanceID), semconv.DeploymentEnvironment(config.Environment()))
+	res := resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName(opts.Name), semconv.ServiceVersion(opts.Version), semconv.ServiceInstanceID(config.C.Server.InstanceId), semconv.DeploymentEnvironment(config.Environment()))
 
 	var exporter sdktrace.SpanExporter
 
-	switch config.C.Observability.Traces.Protocol {
+	switch config.C.Observability.Tracing.Protocol {
 	case "http/protobuf":
 		options := []otlptracehttp.Option{
-			otlptracehttp.WithEndpointURL(config.C.Observability.Traces.Endpoint),
+			otlptracehttp.WithEndpoint(config.C.Observability.Tracing.Endpoint),
 		}
-		if config.C.Observability.Traces.EndpointPath != "" {
-			options = append(options, otlptracehttp.WithURLPath(config.C.Observability.Traces.EndpointPath))
+		if config.C.Observability.Tracing.Path != nil {
+			options = append(options, otlptracehttp.WithURLPath(*config.C.Observability.Tracing.Path))
 		}
-		if len(config.C.Observability.Traces.Headers) > 0 {
-			options = append(options, otlptracehttp.WithHeaders(config.C.Observability.Traces.Headers))
+		if len(config.C.Observability.Tracing.Headers) > 0 {
+			options = append(options, otlptracehttp.WithHeaders(config.C.Observability.Tracing.Headers))
 		}
-		if config.C.Observability.Traces.WithInsecure {
+		if config.C.Observability.Tracing.WithInsecure {
 			options = append(options, otlptracehttp.WithInsecure())
 		}
 		exporter, err = otlptracehttp.New(ctx, options...)
@@ -61,12 +61,12 @@ func InitTracer(ctx context.Context) (err error) {
 		}
 	case "grpc":
 		options := []otlptracegrpc.Option{
-			otlptracegrpc.WithEndpoint(config.C.Observability.Traces.Endpoint),
+			otlptracegrpc.WithEndpoint(config.C.Observability.Tracing.Endpoint),
 		}
-		if len(config.C.Observability.Traces.Headers) > 0 {
-			options = append(options, otlptracegrpc.WithHeaders(config.C.Observability.Traces.Headers))
+		if len(config.C.Observability.Tracing.Headers) > 0 {
+			options = append(options, otlptracegrpc.WithHeaders(config.C.Observability.Tracing.Headers))
 		}
-		if config.C.Observability.Traces.WithInsecure {
+		if config.C.Observability.Tracing.WithInsecure {
 			options = append(options, otlptracegrpc.WithInsecure())
 		}
 		exporter, err = otlptracegrpc.New(ctx, options...)
@@ -79,7 +79,7 @@ func InitTracer(ctx context.Context) (err error) {
 			return
 		}
 	default:
-		return &TracingConfigurationError{Message: "Unknown OTEL trace exporter protocol: " + config.C.Observability.Traces.Protocol}
+		return &TracingConfigurationError{Message: "Unknown OTEL trace exporter protocol: " + config.C.Observability.Tracing.Protocol}
 	}
 
 	Provider = sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithResource(res))
@@ -98,6 +98,9 @@ func ShutdownTracer(ctx context.Context) error {
 	return nil
 }
 
-func AddTracingMiddleware(engine *gin.Engine) {
-	engine.Use(otelgin.Middleware(opts.Name))
+func AddTracingMiddleware(router chi.Router) {
+	router.Use(otelchi.Middleware(opts.Name, otelchi.WithChiRoutes(router), otelchi.WithTracerProvider(Provider), otelchi.WithTraceResponseHeaders(otelchi.TraceHeaderConfig{
+		TraceIDHeader:      "", // Enable TraceIDHeader with default header name
+		TraceSampledHeader: "", // Enable TraceSampledHeader with default header name
+	})))
 }

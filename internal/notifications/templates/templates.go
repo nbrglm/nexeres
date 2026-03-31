@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nbrglm/nexeres/config"
+	"github.com/nbrglm/nexeres/convention"
 	"github.com/nbrglm/nexeres/utils"
 )
 
@@ -120,7 +120,7 @@ func RenderEmailTemplate(data TemplateData, tmpl EmailTemplate) (*RenderedEmailT
 
 // findAndParseTemplates is a utility function that searches for a template file in the embedded filesystem or a specified directory in the config.
 func findAndParseTemplates(htmlTmplSubPath, plainTextTmplSubPath, subjectTmplSubPath string) (subjectTemplate, htmlTemplate, plainTextTemplate *template.Template, err error) {
-	templatesDir := config.FilePaths[config.EMAIL_TEMPLATES]
+	templatesDir := convention.FilePaths[convention.EMAIL_TEMPLATES]
 	if utils.DirExists(templatesDir) {
 		htmlTemplate, err = template.ParseFiles(path.Join(templatesDir, htmlTmplSubPath))
 		if err != nil {

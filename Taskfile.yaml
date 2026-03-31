@@ -13,9 +13,9 @@ tasks:
       - sudo chown -R 5050:5050 ./data/nexeres-pgadmin-data
       - echo "pgAdmin setup complete. Permissions set to 5050:5050. for ./data/nexeres-pgadmin-data"
 
-  oapi-spec-gen:
-    desc: Generate the OpenAPI specification from the Go code
-    cmd: swag init -o oapispec
+  oapi-server-gen:
+    desc: Generate the Go code from the OpenAPI specification.
+    cmd: oapi-codegen -config openapi/oapi-codegen.yaml openapi/openapi.yaml
 
   db-gen:
     desc: Generate the database objects, querriers, etc.
@@ -61,7 +61,7 @@ tasks:
       - echo "Removing existing data directory..."
       - sudo rm -rf ${DEV_DATA_DIR}
       - echo "Creating new data directory..."
-      - mkdir -p ${DEV_DATA_DIR}
+      - sudo mkdir -p ${DEV_DATA_DIR}
       - echo "Starting the database containers..."
       - docker compose up -d
       - echo "Waiting for the database to start..."
@@ -69,3 +69,11 @@ tasks:
       - echo "Running migrations..."
       - task db-migrate-up-all
       - echo "Database rebuild complete."
+
+  gen-sdks:
+    desc: Generate SDKs for various languages
+    cmds:
+      - echo "Generating TypeScript SDK..."
+      - kiota update --output sdks/nexeres-node
+      - echo "Generating Go SDK..."
+      - kiota update --output sdks/nexeres-go

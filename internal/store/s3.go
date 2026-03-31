@@ -43,12 +43,20 @@ func (s *S3BucketPolicyStatement) IsEqual(other S3BucketPolicyStatement) bool {
 }
 
 func DesiredBucketPolicyStatement(bucketName string) S3BucketPolicyStatement {
+	var resource StringOrSlice
+
+	switch config.C.Stores.S3.Type {
+	// case "seaweedfs":
+	// 	resource = StringOrSlice{fmt.Sprintf("%s/public/*", bucketName)}
+	default:
+		resource = StringOrSlice{fmt.Sprintf("arn:aws:s3:::%s/public/*", bucketName)}
+	}
 	return S3BucketPolicyStatement{
 		Sid:       "PublicReadGetObject",
 		Effect:    "Allow",
 		Principal: Principal{Str: "*", IsStr: true},
 		Action:    StringOrSlice{"s3:GetObject"},
-		Resource:  StringOrSlice{fmt.Sprintf("arn:aws:s3:::%s/public/*", bucketName)},
+		Resource:  resource,
 	}
 }
 
@@ -117,9 +125,6 @@ func (s *StringOrSlice) UnmarshalJSON(data []byte) error {
 }
 
 func (s *StringOrSlice) MarshalJSON() ([]byte, error) {
-	if len(*s) == 1 {
-		return json.Marshal((*s)[0])
-	}
 	return json.Marshal([]string(*s))
 }
 

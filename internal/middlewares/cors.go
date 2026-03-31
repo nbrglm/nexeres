@@ -1,29 +1,31 @@
 package middlewares
 
 import (
+	"net/http"
 	"strings"
 
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
 	"github.com/nbrglm/nexeres/config"
+	"github.com/nbrglm/nexeres/convention"
 	"github.com/nbrglm/nexeres/opts"
 )
 
-func InitCORS(engine *gin.Engine) {
-	engine.Use(cors.New(
-		cors.Config{
+func InitCORS(r chi.Router) {
+	r.Use(cors.Handler(
+		cors.Options{
 			AllowCredentials: true, // We do not let the user set this, as we need credentials for the UI.
-			AllowMethods:     config.C.Security.CORS.AllowedMethods,
+			AllowedMethods:   convention.CORSAllowedMethods,
 			AllowOriginFunc:  isOriginAllowed,
-			AllowHeaders:     config.C.Security.CORS.AllowedHeaders,
+			AllowedHeaders:   convention.CORSAllowedHeaders,
 		},
 	))
 }
 
-func isOriginAllowed(origin string) bool {
+func isOriginAllowed(_ *http.Request, origin string) bool {
 	// Since GetBaseURL() returns the debugBaseURL if opts.Debug is true,
 	// thus we check that first.
-	if origin == config.C.Public.GetBaseURL() {
+	if origin == config.C.PublicEndpoint.GetBaseURL() {
 		return true
 	}
 
@@ -33,7 +35,7 @@ func isOriginAllowed(origin string) bool {
 		return origin == ""
 	}
 
-	if origin == "https://"+config.C.Public.Domain {
+	if origin == "https://"+config.C.PublicEndpoint.Domain {
 		return true
 	}
 

@@ -26,7 +26,7 @@ var Querier *db.Queries
 //
 // It should be called at the start of the application to set up the database connection pool.
 func InitDB(ctx context.Context) (err error) {
-	pgConfig, err := pgxpool.ParseConfig(config.C.Stores.Postgres.DSN)
+	pgConfig, err := pgxpool.ParseConfig(config.C.Stores.PostgresDSN)
 	if err != nil {
 		return err
 	}

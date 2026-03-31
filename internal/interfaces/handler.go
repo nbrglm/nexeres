@@ -1,8 +1,15 @@
 package interfaces
 
-import "github.com/gin-gonic/gin"
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"go.opentelemetry.io/otel/metric"
+)
 
 type Handler interface {
-	Register(engine *gin.Engine)
-	Handle(c *gin.Context)
+	Register(r chi.Router)
+	Handle(w http.ResponseWriter, r *http.Request)
 }
+
+type HandlerConstructor func(metric.Meter) (Handler, error)

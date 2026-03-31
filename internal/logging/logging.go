@@ -73,8 +73,8 @@ func InitLogger() (err error) {
 		if config.C.Observability.Logs.WithInsecure {
 			options = append(options, otlploghttp.WithInsecure()) // Use insecure connection in debug mode.
 		}
-		if config.C.Observability.Logs.EndpointPath != "" {
-			options = append(options, otlploghttp.WithURLPath(config.C.Observability.Logs.EndpointPath))
+		if config.C.Observability.Logs.Path != nil {
+			options = append(options, otlploghttp.WithURLPath(*config.C.Observability.Logs.Path))
 		}
 		if len(config.C.Observability.Logs.Headers) > 0 {
 			options = append(options, otlploghttp.WithHeaders(config.C.Observability.Logs.Headers))
@@ -90,7 +90,12 @@ func InitLogger() (err error) {
 
 	// Create a batch processor for the exporter.
 	// The batch processor will handle the batching of log records before sending them to the exporter.
-	processor := log.NewBatchProcessor(exporter)
+	var processor log.Processor
+	if config.C.Observability.Logs.Batch {
+		processor = log.NewBatchProcessor(exporter)
+	} else {
+		processor = log.NewSimpleProcessor(exporter)
+	}
 	hostname, _ := os.Hostname()
 
 	// Resource is the global resource that will be used to create loggers.
@@ -99,7 +104,7 @@ func InitLogger() (err error) {
 		semconv.SchemaURL,
 		semconv.ServiceName(opts.Name),
 		semconv.ServiceVersion(opts.Version),
-		semconv.ServiceInstanceID(config.C.Server.InstanceID),
+		semconv.ServiceInstanceID(config.C.Server.InstanceId),
 		semconv.DeploymentEnvironment(config.Environment()),
 		semconv.HostName(hostname),
 	)
@@ -125,7 +130,6 @@ func InitLogger() (err error) {
 		return otelzap.NewCore(opts.FullName, otelzap.WithLoggerProvider(Provider))
 	})))
 	zap.ReplaceGlobals(Logger)
-	Logger.WithOptions()
 	return nil
 }
 

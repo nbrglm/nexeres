@@ -1,53 +1,56 @@
 package middlewares
 
 import (
-	"github.com/gin-gonic/gin"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-chi/httprate"
+	httprate_redis "github.com/go-chi/httprate-redis"
+
 	"github.com/nbrglm/nexeres/config"
-	"github.com/redis/go-redis/v9"
-	"github.com/ulule/limiter/v3"
-	mgin "github.com/ulule/limiter/v3/drivers/middleware/gin"
-	sredis "github.com/ulule/limiter/v3/drivers/store/redis"
+	"github.com/nbrglm/nexeres/opts"
 )
 
-var (
-	rateLimiter *limiter.Limiter
-)
-
-// InitRateLimitStore initializes the rate limit store.
-// This function should be called during application startup to set up the rate limiting store.
-func InitRateLimitStore() error {
+func RateLimitMiddleware() func(http.Handler) http.Handler {
 	redisPassword := ""
 	if config.C.Stores.Redis.Password != nil {
 		redisPassword = *config.C.Stores.Redis.Password
 	}
-	redisOpts := redis.Options{
-		Addr:     config.C.Stores.Redis.Address,
-		Password: redisPassword,
-		DB:       config.C.Stores.Redis.DB,
-	}
-	redisClient := redis.NewClient(&redisOpts)
-	rateLimitStore, err := sredis.NewStoreWithOptions(
-		redisClient,
-		limiter.StoreOptions{
-			Prefix: "nexeres_rate_limit",
-		},
-	)
+	prefix := fmt.Sprintf("%s_rate_limit", opts.Name)
+	addrParts := strings.Split(config.C.Stores.Redis.Address, ":")
+	port, err := strconv.Atoi(addrParts[1])
 	if err != nil {
-		return err
+		port = 6379
+	}
+	unit := time.Second
+	switch config.C.Security.RateLimiting.Duration {
+	case "s":
+		unit = time.Second
+	case "m":
+		unit = time.Minute
+	case "h":
+		unit = time.Hour
 	}
 
-	rate, err := limiter.NewRateFromFormatted(config.C.Security.RateLimit.Rate)
-	if err != nil {
-		return err
-	}
+	return httprate.Limit(
+		config.C.Security.RateLimiting.Rate,
+		unit,
+		httprate.WithKeyFuncs(rateLimitKeyFunc),
+		httprate_redis.WithRedisLimitCounter(&httprate_redis.Config{
+			Host:      addrParts[0],
+			Port:      uint16(port),
+			PrefixKey: prefix,
+			DBIndex:   config.C.Stores.Redis.DB,
+			Password:  redisPassword,
+		}))
+}
 
-	rateLimiter = limiter.New(rateLimitStore, rate)
-	return nil
+func rateLimitKeyFunc(r *http.Request) (string, error) {
+	return "", nil
 }
 
 // RateLimitMiddleware returns a middleware that applies rate limiting
-// to open API endpoints based on the configured rate limit.
-// This middleware is used for endpoints that do not require authentication.
-func RateLimitMiddleware() gin.HandlerFunc {
-	return mgin.NewMiddleware(rateLimiter)
-}
+// to API endpoints based on the configured rate limit.

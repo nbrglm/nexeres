@@ -1,9 +1,9 @@
 package middlewares
 
 import (
+	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/nbrglm/nexeres/config"
 	"github.com/nbrglm/nexeres/internal/cache"
 	"github.com/nbrglm/nexeres/internal/tokens"
@@ -17,26 +17,26 @@ import (
 //
 // If the admin token is not found or if there is an error retrieving or storing the
 // session, the expiry time is set to a past time to effectively expire the session.
-func AdminInactivityReset(ctx *gin.Context) {
-	adminToken := ctx.GetString(CtxAdminToken)
-	if adminToken == "" {
+func AdminInactivityReset(w http.ResponseWriter, r *http.Request) {
+	adminToken, ok := r.Context().Value(CtxAdminToken).(string)
+	if !ok || adminToken == "" {
 		return
 	}
 
 	var expiry time.Time
-	expiry = time.Now().Add(time.Second * time.Duration(config.C.Admins.SessionTimeout))
-	session, err := cache.GetAdminSession(ctx.Request.Context(), adminToken)
+	expiry = time.Now().Add(time.Second * time.Duration(config.C.Admins.SessionTimeoutSeconds))
+	session, err := cache.GetAdminSession(r.Context(), adminToken)
 	if err != nil {
 		expiry = time.Now().Add(time.Hour * (-24)) // set to past time to expire immediately
 	} else {
 		oldExpiry := session.ExpiresAt
 		session.ExpiresAt = expiry
-		err = cache.StoreAdminSession(ctx.Request.Context(), *session)
+		err = cache.StoreAdminSession(r.Context(), *session)
 		if err != nil {
 			expiry = oldExpiry // revert to old expiry on error
 		}
 	}
 
 	// Reset the inactivity timer on each request to an admin endpoint
-	ctx.Header(tokens.AdminTokenExpiryHeaderName, expiry.Format(time.RFC3339))
+	w.Header().Set(tokens.AdminTokenExpiryHeaderName, expiry.Format(time.RFC3339))
 }

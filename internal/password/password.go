@@ -18,9 +18,10 @@ import (
 
 // HashPassword hashes the provided password using the configured algorithm.
 func HashPassword(password string) (string, error) {
-	if config.C.Password.Algorithm == config.BcryptPasswordHashingAlgorithm {
+	switch config.C.Password.Algorithm {
+	case config.BCryptPasswordHashingAlgorithm:
 		return hashPasswordBCrypt(password)
-	} else if config.C.Password.Algorithm == config.Argon2idPasswordHashingAlgorithm {
+	case config.Argon2idPasswordHashingAlgorithm:
 		return hashPasswordArgon2id(password)
 	}
 
@@ -28,7 +29,7 @@ func HashPassword(password string) (string, error) {
 }
 
 func hashPasswordBCrypt(password string) (string, error) {
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), config.C.Password.Bcrypt.Cost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), *config.C.Password.BcryptCost)
 	if err != nil {
 		return "", err
 	}
@@ -37,35 +38,31 @@ func hashPasswordBCrypt(password string) (string, error) {
 
 func hashPasswordArgon2id(password string) (string, error) {
 	// Generate a random salt
-	salt := make([]byte, config.C.Password.Argon2id.SaltLength)
+	salt := make([]byte, config.C.Password.Argon2idParams.SaltLength)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
 
-	hash := argon2.IDKey([]byte(password), salt, uint32(config.C.Password.Argon2id.Iterations), uint32(config.C.Password.Argon2id.Memory), uint8(config.C.Password.Argon2id.Parallelism), uint32(config.C.Password.Argon2id.KeyLength))
+	hash := argon2.IDKey([]byte(password), salt, uint32(config.C.Password.Argon2idParams.Iterations), uint32(config.C.Password.Argon2idParams.Memory), uint8(config.C.Password.Argon2idParams.Parallelism), uint32(config.C.Password.Argon2idParams.KeyLength))
 
 	// Base64 encode the salt and hashed password.
 	b64Salt := base64.RawStdEncoding.EncodeToString(salt)
 	b64Hash := base64.RawStdEncoding.EncodeToString(hash)
 
-	encodedHash := fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, config.C.Password.Argon2id.Memory, config.C.Password.Argon2id.Iterations, config.C.Password.Argon2id.Parallelism, b64Salt, b64Hash)
+	encodedHash := fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, config.C.Password.Argon2idParams.Memory, config.C.Password.Argon2idParams.Iterations, config.C.Password.Argon2idParams.Parallelism, b64Salt, b64Hash)
 	return encodedHash, nil
 }
 
 // VerifyPasswordMatch checks if the hashed password matches the provided password.
-func VerifyPasswordMatch(hashedPassword, password string) bool {
-	if strings.HasPrefix(hashedPassword, "$argon2id$") {
-		return verifyPasswordArgon2id(hashedPassword, password)
-	} else if strings.HasPrefix(hashedPassword, "$2a$") || strings.HasPrefix(hashedPassword, "$2b$") || strings.HasPrefix(hashedPassword, "$2y$") {
-		return verifyPasswordBCrypt(hashedPassword, password)
+func VerifyPasswordMatch(hashedPassword, password string) (bool, error) {
+	switch {
+	case strings.HasPrefix(hashedPassword, "$argon2id$"):
+		return verifyPasswordArgon2id(hashedPassword, password), nil
+	case strings.HasPrefix(hashedPassword, "$2a$"), strings.HasPrefix(hashedPassword, "$2b$"), strings.HasPrefix(hashedPassword, "$2y$"):
+		return verifyPasswordBCrypt(hashedPassword, password), nil
+	default:
+		return false, fmt.Errorf("unknown hash type! cannot verify password")
 	}
-	if config.C.Password.Algorithm == config.BcryptPasswordHashingAlgorithm {
-
-	} else if config.C.Password.Algorithm == config.Argon2idPasswordHashingAlgorithm {
-		// Implement Argon2id verification here if needed
-	}
-
-	return hashedPassword == password
 }
 
 func verifyPasswordBCrypt(hashedPassword, password string) bool {

@@ -8,27 +8,27 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/nbrglm/nexeres/config"
-	"github.com/nbrglm/nexeres/handlers"
+	"github.com/nbrglm/nexeres/internal/api/handlers"
 	"github.com/nbrglm/nexeres/internal/cache"
 	"github.com/nbrglm/nexeres/internal/logging"
 	"github.com/nbrglm/nexeres/internal/metrics"
 	"github.com/nbrglm/nexeres/internal/middlewares"
 	"github.com/nbrglm/nexeres/internal/notifications"
 	"github.com/nbrglm/nexeres/internal/notifications/templates"
+	"github.com/nbrglm/nexeres/internal/resp"
 	"github.com/nbrglm/nexeres/internal/store"
 	"github.com/nbrglm/nexeres/internal/tokens"
 	"github.com/nbrglm/nexeres/internal/tracing"
-	_ "github.com/nbrglm/nexeres/oapispec"
 	"github.com/nbrglm/nexeres/opts"
 	"github.com/nbrglm/nexeres/utils"
 	"github.com/spf13/cobra"
-	swaggerFiles "github.com/swaggo/files"     // swagger embed files
-	ginSwagger "github.com/swaggo/gin-swagger" // gin-swagger middleware
 	"go.uber.org/zap"
 )
 
@@ -59,7 +59,7 @@ func runServer(cmd *cobra.Command, migrationsFS embed.FS) {
 	utils.InitValidator()
 
 	// Load the configuration file
-	if err := config.LoadConfigOptions(*opts.ConfigPath); err != nil {
+	if err := config.LoadConfig(*opts.ConfigPath); err != nil {
 		fatal(cmd, "Error loading config file: %v\n", err)
 	}
 
@@ -96,75 +96,35 @@ func runServer(cmd *cobra.Command, migrationsFS embed.FS) {
 		}
 	}
 
-	engine := gin.Default()
-	if opts.Debug {
-		gin.SetMode(gin.DebugMode)
-		logging.Logger.Warn("Debug mode is enabled! This is not recommended for production environments. Use with caution. The following behaviour is used.", zap.String("Debug Mode", "Enabled"), zap.String("API Docs", fmt.Sprintf("%s/docs", config.C.Public.GetBaseURL())), zap.String("CSRF Protection", "Disabled"))
-		// Setup docs
-		engine.GET("/docs", func(ctx *gin.Context) {
-			ctx.Header("Content-Type", "text/html")
-			ctx.String(200, `<!doctype html>
-	<html>
-		<head>
-			<title>API Reference</title>
-			<meta charset="utf-8" />
-			<meta
-				name="viewport"
-				content="width=device-width, initial-scale=1" />
-		</head>
-		<body>
-			<script
-				id="api-reference"
-				data-url="/swagger/doc.json"></script>
-			<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
-		</body>
-	</html>`)
-		})
-		engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	} else {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	// Create a new router
+	router := chi.NewRouter()
+
+	// Add recovery middleware
+	router.Use(middleware.Recoverer)
 
 	// Add CORS middleware
-	middlewares.InitCORS(engine)
+	middlewares.InitCORS(router)
 
 	// Populate the auth context for all routes
-	engine.Use(middlewares.PopulateAuthContext())
+	router.Use(middlewares.PopulateAuthContext)
 
 	// Require org scope for all routes
-	engine.Use(middlewares.RequireOrgScope())
-
-	// Initialize the rate limiter, before adding the handler routes.
-	if err := middlewares.InitRateLimitStore(); err != nil {
-		fatalLogger("Failed to initialize rate limit store", zap.Error(err))
-	}
+	router.Use(middlewares.RequireOrgScope)
 
 	// Add the rate limit middleware AFTER the API Key middleware,
 	// since it needs access to the API key to apply rate limits.
-	engine.Use(middlewares.RateLimitMiddleware())
-
-	// Register the routes
-	handlers.RegisterAPIRoutes(engine)
-
-	// Health check endpoint
-	engine.GET("/", func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{
-			"success": true,
-		})
-	})
+	router.Use(middlewares.RateLimitMiddleware())
 
 	// Initialize the metrics collection system
 	//
-	// NOTE: Always do this after registering the API routes.
+	// NOTE: Always do this BEFORE registering the API routes.
 	//
-	// This is because the collectors need to be registered with the Prometheus registry
-	// before the metrics route is added to the engine.
-	// And the collectors are only assigned in the Register() methods of each handler, hence we need
-	// to call this after registering the API routes.
-	// This will also register the /metrics route to serve the metrics in Prometheus format.
-	// This is done to ensure that the metrics are collected and reported correctly.
-	metrics.InitMetrics()
-	metrics.AddMetricsRoute(engine)
+	// This is because the OTEL Meter Provider needs to be initialized
+	// before any metrics are created in the handlers.
+	err = metrics.InitMetrics()
+	if err != nil {
+		fatalLogger("Failed to initialize metrics", zap.Error(err))
+	}
 
 	// Initialize the OpenTelemetry Tracer
 	err = tracing.InitTracer(context.Background())
@@ -173,7 +133,7 @@ func runServer(cmd *cobra.Command, migrationsFS embed.FS) {
 		fatalLogger("Failed to initialize OTEL tracer provider", zap.Error(err))
 	}
 
-	tracing.AddTracingMiddleware(engine)
+	tracing.AddTracingMiddleware(router)
 
 	// Parse the notification templates
 	if err := templates.ParseEmailTemplates(); err != nil {
@@ -207,11 +167,25 @@ func runServer(cmd *cobra.Command, migrationsFS embed.FS) {
 		fatalLogger("Failed to initialize S3 store", zap.Error(err))
 	}
 
+	// Register the routes AFTER ALL MIDDLEWARES
+	handlers.RegisterAPIRoutes(router)
+
+	// Health check endpoint
+	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		resp.WriteJSON(w, http.StatusOK, map[string]any{
+			"service-up": true,
+		})
+	})
+
+	if opts.Debug {
+		logging.Logger.Warn("Debug mode is enabled! This is not recommended for production environments. Use with caution. The logs will contain sensitive information and error responses will have debug information.")
+	}
+
 	// Start the server
-	serverAddress := fmt.Sprintf("%s:%s", config.C.Server.Host, config.C.Server.Port)
+	serverAddress := fmt.Sprintf("%s:%s", config.C.Server.Host, strconv.Itoa(config.C.Server.Port))
 	srv := &http.Server{
 		Addr:    serverAddress,
-		Handler: engine.Handler(),
+		Handler: router,
 	}
 
 	logging.Logger.Info("Starting server", zap.String("address", serverAddress))
@@ -238,7 +212,10 @@ func runServer(cmd *cobra.Command, migrationsFS embed.FS) {
 		logging.Logger.Error("Failed to shutdown OTEL tracer provider", zap.Error(err))
 	}
 
-	// Metrics collector shutdown is not needed as it is handled by the Prometheus registry
+	logging.Logger.Info("Shutting down metrics provider")
+	if err := metrics.ShutdownMetrics(context.Background()); err != nil {
+		logging.Logger.Error("Failed to shutdown metrics provider", zap.Error(err))
+	}
 
 	// Shut down server
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)

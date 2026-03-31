@@ -8,6 +8,7 @@ package notifications
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/nbrglm/nexeres/config"
@@ -40,13 +41,13 @@ var SMSEnabled = false
 func InitEmail() {
 	switch config.C.Notifications.Email.Provider {
 	case "smtp":
-		EmailSender = NewSMTPEmailSender(config.C.Notifications.Email.SMTP.Host, config.C.Notifications.Email.SMTP.Port, config.C.Notifications.Email.SMTP.FromAddress, config.C.Notifications.Email.SMTP.Password)
+		EmailSender = NewSMTPEmailSender(config.C.Notifications.Email.SMTP.Host, strconv.Itoa(config.C.Notifications.Email.SMTP.Port), config.C.Notifications.Email.SMTP.FromAddress, config.C.Notifications.Email.SMTP.FromName, config.C.Notifications.Email.SMTP.Password)
 		EmailEnabled = true
 	case "sendgrid":
-		EmailSender = NewSendGridEmailSender(config.C.Notifications.Email.SendGrid.APIKey, config.C.Notifications.Email.SendGrid.FromAddress, config.C.Notifications.Email.SendGrid.FromName)
+		EmailSender = NewSendGridEmailSender(config.C.Notifications.Email.SendGrid.APIKey, config.C.Notifications.Email.SendGrid.FromAddress, &config.C.Notifications.Email.SendGrid.FromName)
 		EmailEnabled = true
 	case "ses":
-		EmailSender = NewSESEmailSender(config.C.Notifications.Email.SES.Region, config.C.Notifications.Email.SES.AccessKeyID, config.C.Notifications.Email.SES.SecretAccessKey, config.C.Notifications.Email.SES.FromAddress, config.C.Notifications.Email.SES.FromName)
+		EmailSender = NewSESEmailSender(config.C.Notifications.Email.SES.Region, config.C.Notifications.Email.SES.AccessKeyID, config.C.Notifications.Email.SES.SecretAccessKey, config.C.Notifications.Email.SES.FromAddress, &config.C.Notifications.Email.SES.FromName)
 		EmailEnabled = true
 	default:
 		EmailEnabled = false
@@ -109,7 +110,7 @@ type SendWelcomeEmailParams struct {
 // It uses the global EmailSender instance to send the email.
 // The email also includes a link to verify the email address.
 func SendWelcomeEmail(ctx context.Context, params SendWelcomeEmailParams) error {
-	verificationUrl := fmt.Sprintf("%s?token=%s", config.C.Notifications.Email.Endpoints.VerificationEmail, params.VerificationToken)
+	verificationUrl := fmt.Sprintf("%s?token=%s", config.C.Notifications.Email.Endpoints.Verification, params.VerificationToken)
 	rendered, err := templates.RenderEmailTemplate(templates.TemplateData{
 		AppName:     config.C.Branding.AppName,
 		UserName:    params.User.Name,

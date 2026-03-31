@@ -1,9 +1,0 @@
-{
-  "version": "1",
-  "name": "Nexers - By NBRGLM",
-  "type": "collection",
-  "ignore": [
-    "node_modules",
-    ".git"
-  ]
-}
